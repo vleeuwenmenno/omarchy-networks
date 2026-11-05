@@ -741,6 +741,7 @@ test("guides: missing tools get the whole walkthrough, installed ones skip the i
 test("guides: only the NetBird web installer is never offered as one click", () => {
   const nb = Tools.GUIDES.netbird.steps.find((s) => s.stage === "install")
   assert.equal(nb.run, undefined)
+  assert.equal(nb.command, undefined) // nothing to copy or run: read the guide
   Object.keys(Tools.GUIDES).forEach((id) => Tools.GUIDES[id].steps.filter((s) => s.run).forEach((s) => assert.equal(/curl|\|\s*sh/.test(s.command), false)))
   assert.equal(Tools.safeUrl("https://docs.netbird.io/get-started/install/linux"), true)
   assert.equal(Tools.safeUrl("javascript:alert(1)"), false)
@@ -778,4 +779,8 @@ test("NetBird peers are named by their first label", () => {
   const t = NetBird.parseStatus(JSON.stringify({ daemonStatus: "Connected", peers: { total: 1, connected: 1, details: [
     { fqdn: "homeserver.netbird.example.com", netbirdIp: "100.1.1.5", status: "Connected" } ] } }))
   assert.equal(t.peers[0].name, "homeserver")
+})
+
+test("guides: no shipped text pipes a download into a shell", () => {
+  Object.keys(Tools.GUIDES).forEach((id) => Tools.GUIDES[id].steps.forEach((s) => assert.equal(/curl|wget|\|\s*(ba)?sh/.test(s.command || ""), false)))
 })

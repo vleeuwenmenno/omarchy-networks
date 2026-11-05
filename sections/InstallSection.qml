@@ -25,7 +25,8 @@ SectionBase {
     var steps = Tools.stepsFor(tabId, state)
     for (var i = 0; i < steps.length; i++) {
       var st = steps[i]
-      out.push({ type: "info", label: st.label, value: st.command, copy: st.command })
+      if (st.command) out.push({ type: "info", label: st.label, value: st.command, copy: st.command })
+      else out.push({ type: "text", text: st.label + ": " + st.note })
       if (st.run)
         out.push({ type: "button", action: "run", command: st.command, glyph: theme.glyphs.gear,
                    title: "Run it in a terminal" })

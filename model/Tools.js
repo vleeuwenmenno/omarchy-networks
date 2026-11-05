@@ -61,7 +61,7 @@ var GUIDES = {
     note: "NetBird is a mesh VPN you can self-host. It is not in the Arch repositories; the project's own installer is the supported route.",
     docs: "https://docs.netbird.io/get-started/install/linux",
     steps: [
-      { stage: "install", label: "Install", command: "curl -fsSL https://pkgs.netbird.io/install.sh | sh" },
+      { stage: "install", label: "Install", note: "NetBird ships its installer as a script on its website. Open the install guide below, read the script, then run it yourself." },
       { stage: "start", label: "Start the service", command: "sudo systemctl enable --now netbird", run: true },
       { stage: "login", label: "Connect", command: "netbird up" }
     ]
