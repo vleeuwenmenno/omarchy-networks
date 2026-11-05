@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.vleeuwenmenno.networks",
+  "name": "Networks",
+  "version": "0.3.0",
+  "author": "Menno van Leeuwen",
+  "license": "MIT",
+  "description": "Wi-Fi, wired, DNS and every VPN (Mullvad, NetBird, Tailscale, WireGuard, OpenVPN) in one Omarchy bar panel, with several VPNs connected at once.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Networks",
+    "description": "Every VPN tunnel in one list. Each toggles on its own, so split-tunnel VPNs can run side by side.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 10
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 5,
+        "max": 600,
+        "step": 5,
+        "defaultValue": 10
+      }
+    ]
+  }
+}

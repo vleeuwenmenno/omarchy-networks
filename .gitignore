@@ -1,0 +1,14 @@
+# Editors and OS
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+
+# Backups and logs
+*.bak
+*.log
+
+# Local state and secrets never belong here
+.env
+*.local.json
