@@ -21,6 +21,8 @@ Item {
   property int restoreCursor: -1
 
   readonly property bool editing: input.activeFocus
+  // Show the typed password instead of dots. Per row, forgotten with the row.
+  property bool revealed: false
 
   signal edited(string text)
   signal accepted()
@@ -64,7 +66,9 @@ Item {
       width: parent.width
       text: row.initial
       placeholderText: row.placeholder
-      password: row.password
+      password: row.password && !row.revealed
+      // Room for the eye button.
+      rightPadding: row.password ? horizontalPadding + Style.space(26) : horizontalPadding
       foreground: row.theme.foreground
       hasCursor: row.cursorOn
       selectByMouse: true
@@ -72,6 +76,36 @@ Item {
       onAccepted: row.accepted()
       Keys.onTabPressed: row.accepted()
       Keys.onEscapePressed: function(event) { input.focus = false; event.accepted = true }
+      Keys.onPressed: function(event) {
+        if (row.password && (event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_E) {
+          row.revealed = !row.revealed
+          event.accepted = true
+        }
+      }
+
+      // Reveal / hide the password.
+      Item {
+        visible: row.password
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        width: Style.space(26)
+        height: parent.height
+
+        Text {
+          anchors.centerIn: parent
+          text: row.revealed ? row.theme.glyphs.eyeOff : row.theme.glyphs.eye
+          color: eyeArea.containsMouse ? row.theme.foreground : row.theme.dim
+          font.family: row.theme.fontFamily
+          font.pixelSize: Style.font.body
+        }
+        MouseArea {
+          id: eyeArea
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: row.revealed = !row.revealed
+        }
+      }
     }
 
     Text {

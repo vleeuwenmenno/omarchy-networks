@@ -54,7 +54,17 @@ Item {
     })
     return out
   }
-  readonly property bool busy: networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running
+  readonly property bool busy: connecting || networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running
+
+  // One join attempt, from the click until it works or fails. The panel shows
+  // it on the form, and the bar icon spins while it runs, so closing the
+  // panel does not hide that something is happening.
+  property string attemptSsid: ""
+  // "" (nothing), "connecting", "connected" or "failed".
+  property string attemptPhase: ""
+  readonly property bool connecting: attemptPhase === "connecting"
+  property bool _sawConnecting: false
+  property bool _wasKnown: false
 
   // True for a few seconds after a scan starts, and while there is nothing to
   // show yet: the list fills in as access points answer.
@@ -80,19 +90,53 @@ Item {
 
   function setRadio(on) { if (demo) return; Networking.wifiEnabled = on }
 
-  function _watch(net) { _watched = net; failure = "" }
+  function _begin(ssid, net) {
+    failure = ""
+    attemptSsid = ssid
+    attemptPhase = "connecting"
+    _sawConnecting = false
+    _wasKnown = net ? net.known === true : false
+    _watched = net
+    attemptTimer.restart()
+  }
+
+  function _succeed() {
+    if (attemptPhase !== "connecting") return
+    attemptTimer.stop()
+    attemptPhase = "connected"
+    failure = ""
+    doneTimer.restart()
+  }
+
+  // A specific reason (from NetworkManager) replaces a generic one, never the
+  // other way round.
+  function _fail(text, specific) {
+    if (attemptPhase === "failed" && !specific) return
+    if (attemptPhase !== "connecting" && attemptPhase !== "failed") return
+    attemptTimer.stop()
+    attemptPhase = "failed"
+    failure = text
+    // A password that did not work leaves a saved profile behind that would be
+    // tried again without asking. Drop the one this attempt created.
+    if (_watched && !_wasKnown && _watched.known && !_watched.connected) _watched.forget()
+  }
 
   function connectKnown(ssid) { if (demo) return;
     var n = _find(ssid)
     if (!n) return
-    _watch(n)
+    _begin(ssid, n)
     n.connect()
   }
 
   function connectPsk(ssid, passphrase) { if (demo) return;
     var n = _find(ssid)
-    if (!n) return
-    _watch(n)
+    if (!n) {
+      attemptSsid = ssid
+      attemptPhase = "failed"
+      failure = "That network is out of range. Scan again."
+      return
+    }
+    _begin(ssid, n)
     n.connectWithPsk(passphrase)
   }
 
@@ -108,7 +152,7 @@ Item {
       failure = "Check the server name and certificate path."
       return
     }
-    failure = ""
+    _begin(ssid, null)
     enterpriseProcess.command = ["bash", "-c", root._enterpriseScript, "nmcli-eap", ssid, identity, serverName, caPath || ""]
     enterpriseProcess.running = true
     enterpriseProcess.write(password + "\n")
@@ -132,7 +176,7 @@ Item {
       failure = "Check the network name and security."
       return
     }
-    failure = ""
+    _begin(ssid, null)
     hiddenProcess.command = ["bash", "-c", root._hiddenScript, "nmcli-hidden", ssid, security]
     hiddenProcess.running = true
     hiddenProcess.write(password + "\n")
@@ -155,7 +199,8 @@ Item {
     command: []
     stdinEnabled: true
     onExited: function(exitCode) {
-      if (exitCode !== 0) root.failure = "Could not join. Check the name, security and password."
+      if (exitCode === 0) root._succeed()
+      else root._fail("Could not join. Check the name, security and password.", true)
     }
   }
 
@@ -181,7 +226,29 @@ Item {
   Connections {
     target: root._watched
     ignoreUnknownSignals: true
-    function onConnectionFailed(reason) { root.failure = root.reasonText(reason) }
+    function onConnectionFailed(reason) { root._fail(root.reasonText(reason), true) }
+    function onConnectedChanged() { if (root._watched && root._watched.connected) root._succeed() }
+    function onStateChanged() {
+      var st = root._watched ? root._watched.state : -1
+      if (st === ConnectionState.Connecting) root._sawConnecting = true
+      else if (st === ConnectionState.Disconnected && root._sawConnecting) root._fail("Could not connect. Check the password.", false)
+    }
+  }
+
+  // The radio can hang for a long time on a bad password; do not spin forever.
+  Timer {
+    id: attemptTimer
+    interval: 30000
+    repeat: false
+    onTriggered: root._fail("Timed out. Check the password and the signal.", false)
+  }
+
+  // "Connected" stays readable for a moment, then the state goes quiet.
+  Timer {
+    id: doneTimer
+    interval: 4000
+    repeat: false
+    onTriggered: if (root.attemptPhase === "connected") root.attemptPhase = ""
   }
 
   Process {
@@ -190,7 +257,8 @@ Item {
     command: []
     stdinEnabled: true
     onExited: function(exitCode) {
-      if (exitCode !== 0) root.failure = "Could not connect. Check the username and password."
+      if (exitCode === 0) root._succeed()
+      else root._fail("Could not connect. Check the username, password and server name.", true)
     }
   }
 

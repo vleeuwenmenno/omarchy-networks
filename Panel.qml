@@ -61,6 +61,9 @@ Panel {
       wifi: "\uf1eb",
       ethernet: String.fromCodePoint(0xF0200),
       wifiOff: String.fromCodePoint(0xF092E),
+      offline: String.fromCodePoint(0xF0C9B),
+      eye: String.fromCodePoint(0xF0208),
+      eyeOff: String.fromCodePoint(0xF0209),
       gear: "\uf013",
       back: "\uf053",
       trash: "\uf1f8",
@@ -186,7 +189,7 @@ Panel {
     return null
   }
   readonly property bool primaryIsWifi: primaryLink !== null && primaryLink.ap !== null
-  readonly property string barGlyph: primaryLink === null ? theme.glyphs.wifiOff
+  readonly property string barGlyph: primaryLink === null ? theme.glyphs.offline
     : (primaryIsWifi ? theme.glyphs.wifi : theme.glyphs.ethernet)
   // "4", "5", "6", "6E", "7": which Wi-Fi generation this connection is.
   readonly property string barGeneration: primaryIsWifi && primaryLink.wifi ? primaryLink.wifi.short : ""
@@ -203,6 +206,8 @@ Panel {
     } else {
       lines.push("Ethernet" + (l.speed > 0 ? " · " + Network.formatSpeed(l.speed) : ""))
     }
+    if (wifiState.connecting) lines.unshift("Connecting to " + wifiState.attemptSsid + "…")
+    else if (wifiState.attemptPhase === "failed" && wifiState.failure !== "") lines.unshift(wifiState.failure)
     var names = vpnState.view.filter(function(t) { return t.up }).map(function(t) { return t.label })
     if (names.length > 0) lines.push("VPN: " + names.join(", "))
     return lines.join("\n")
@@ -423,6 +428,18 @@ Panel {
           font.family: root.theme.fontFamily
           font.pixelSize: Style.font.caption
           font.bold: true
+        }
+
+        // Joining a Wi-Fi network: keeps turning after the panel is closed.
+        Spinner {
+          running: wifiState.connecting
+          anchors.left: parent.left
+          anchors.bottom: parent.bottom
+          anchors.leftMargin: -Style.space(4)
+          anchors.bottomMargin: -Style.space(3)
+          size: Style.space(9)
+          thickness: 1.5
+          color: parent.ink
         }
 
         // A VPN is up.

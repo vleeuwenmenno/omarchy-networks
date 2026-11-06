@@ -58,7 +58,8 @@ SectionBase {
 
   function go(next) {
     page = next
-    wifi.scanning = next === "wifi"
+    // Keep scanning on the password form: the join needs the access point in view.
+    wifi.scanning = next === "wifi" || next === "connect"
     root.cursorRequested(0)
   }
 
@@ -366,14 +367,16 @@ SectionBase {
       options: [{ id: "wpa-psk", label: "WPA / WPA2" }, { id: "sae", label: "WPA3" }, { id: "open", label: "Open" }]
     })
     if (hiddenSecurity !== "open")
-      out.push({ type: "field", key: "hiddenPassword", label: "Passphrase", initial: hidden.password || "", password: true })
-    if (wifi.failure !== "") out.push({ type: "text", tone: "urgent", text: wifi.failure })
+      out.push({ type: "field", key: "hiddenPassword", label: "Passphrase", initial: hidden.password || "", password: true, submit: "hidden-connect" })
+    if (wifi.connecting) out.push({ type: "status", text: "Connecting to " + (hidden.ssid || "the network") + "…" })
+    else if (wifi.failure !== "") out.push({ type: "text", tone: "urgent", text: wifi.failure })
     out.push({ type: "button", action: "hidden-connect", glyph: theme.glyphs.wifi,
-               title: wifi.busy ? "Connecting…" : "Connect", busy: wifi.busy })
+               title: wifi.connecting ? "Connecting…" : "Connect", busy: wifi.connecting })
     return out
   }
 
   function submitHidden() {
+    if (wifi.connecting) return
     var ssid = hidden.ssid || ""
     if (!Wifi.validSsid(ssid)) { hiddenError = "Enter the network name (up to 32 characters)"; return }
     var pw = hidden.password || ""
@@ -395,12 +398,15 @@ SectionBase {
     }
     out.push({
       type: "field", key: "password", label: connectEnterprise ? "Password" : "Passphrase",
-      initial: secrets.password || "", password: true, error: connectError
+      initial: secrets.password || "", password: true, error: connectError, submit: "connect"
     })
-    if (wifi.failure !== "") out.push({ type: "text", tone: "urgent", text: wifi.failure })
+    var mine = wifi.attemptSsid === connectSsid
+    if (mine && wifi.attemptPhase === "connecting")
+      out.push({ type: "status", text: "Connecting to " + connectSsid + ", checking the password…" })
+    else if (wifi.failure !== "") out.push({ type: "text", tone: "urgent", text: wifi.failure })
     out.push({
       type: "button", action: "connect", glyph: theme.glyphs.wifi,
-      title: wifi.busy ? "Connecting…" : "Connect", busy: wifi.busy
+      title: wifi.connecting ? "Connecting…" : "Connect", busy: wifi.connecting
     })
     return out
   }
@@ -487,6 +493,7 @@ SectionBase {
   }
 
   function submitConnect() {
+    if (wifi.connecting) return
     var pw = secrets.password || ""
     if (!connectEnterprise && /^(Wpa|Sae)/.test(connectSecurity) && (pw.length < 8 || pw.length > 63)) {
       connectError = "Passphrase must be 8 to 63 characters"
@@ -511,6 +518,13 @@ SectionBase {
   // Used by the screenshot tooling to open a sub-page directly.
   function devPage(name) {
     if (name === "wifi") go("wifi")
+    else if (name === "connect" || name === "connect-busy") {
+      connectSsid = "Neighbour 5G"; connectEnterprise = false; connectSecurity = "Wpa2Psk"
+      connectError = ""; secrets = ({ password: "hunter2hunter2" }); wifi.failure = ""
+      wifi.attemptSsid = name === "connect-busy" ? "Neighbour 5G" : ""
+      wifi.attemptPhase = name === "connect-busy" ? "connecting" : ""
+      go("connect")
+    }
     else go("")
   }
 

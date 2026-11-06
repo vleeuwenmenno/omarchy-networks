@@ -14,7 +14,8 @@ import qs.Ui
 //                      secondary (glyph), secondaryAction, ... }
 //   { type: "button", glyph, title, detail, action, ... }
 //   { type: "group", key, text, summary }              dropdown header, actionable
-//   { type: "field", key, label, initial, placeholder, error, password }
+//   { type: "field", key, label, initial, placeholder, error, password, submit }
+//                      `submit` is a button action that Enter in this field triggers.
 //   { type: "choice", key, label, options: [{ id, label }], value }
 //   { type: "qr", rows }                              a scannable matrix
 //   { type: "stats",  rx, tx, rxHistory, txHistory, counters }
@@ -287,7 +288,11 @@ Column {
               Component.onDestruction: list._setEditing(cell.modelData.key, false)
               onHovered: list.cursorRequested(cell.ordinal)
               onEdited: function(text) { list.fieldEdited(cell.modelData.key, text) }
-              onAccepted: list.advanceFrom(cell.ordinal)
+              onAccepted: {
+                list.advanceFrom(cell.ordinal)
+                // The last field of a form carries `submit`: Enter sends it.
+                if (cell.modelData.submit) list.activated({ type: "button", action: cell.modelData.submit })
+              }
             }
           }
         }
