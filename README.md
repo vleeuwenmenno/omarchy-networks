@@ -11,7 +11,7 @@ Wi-Fi, wired, DNS and every VPN, in one panel in the [Omarchy](https://omarchy.o
 ## What it does
 
 - **Network**: your wired and Wi-Fi links at a glance (address, link speed, Wi-Fi generation, live traffic), each with its own on/off switch. Fold a link down to one line; the choice is remembered.
-- **Wi-Fi**: pick a network, connect (open, WPA, WPA-Enterprise, hidden), forget saved ones, rescan, show a QR code to share the network, copy its password, and pin the band.
+- **Wi-Fi**: pick a network, connect (open, WPA, WPA-Enterprise with a pinned server name and CA, hidden), forget saved ones, rescan, show a QR code to share the network, copy its password, and pin the band.
 - **IP settings**: DHCP or a static address, with the netmask, gateway and DNS validated before anything is applied.
 - **DNS**: DHCP, Quad9, OpenDNS, Google or your own servers.
 - **Speed test**: latency, packet loss, download and upload on the link that carries your traffic.
@@ -91,7 +91,7 @@ The plugin runs unsandboxed inside the shell, like every Omarchy plugin. Most of
 - turning off a WireGuard interface that NetworkManager does not manage (`wg-quick down`)
 - letting your user control Tailscale (`tailscale set --operator`)
 
-Wi-Fi passphrases and static DNS servers are handed to `nmcli` and Omarchy's helpers on stdin or through a pipe, never as command-line arguments. Every interface name, address and location code that reaches a command is validated first. The install help in the empty tabs shows `sudo` commands for you to copy; the plugin never runs those itself.
+Wi-Fi passphrases and static DNS servers are handed to `nmcli` and Omarchy's helpers on stdin or through a pipe, never as command-line arguments. Every interface name, address and location code that reaches a command is validated first. Enterprise Wi-Fi (PEAP) profiles are only created with a server name that must match the RADIUS certificate, and a CA file or the system CA bundle, so a lookalike network cannot collect your password. The install help in the empty tabs shows install and `sudo systemctl` commands. You can copy them, or click a button to run one in a terminal window; nothing runs without that click.
 
 ## Development
 

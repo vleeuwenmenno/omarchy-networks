@@ -784,3 +784,23 @@ test("NetBird peers are named by their first label", () => {
 test("guides: no shipped text pipes a download into a shell", () => {
   Object.keys(Tools.GUIDES).forEach((id) => Tools.GUIDES[id].steps.forEach((s) => assert.equal(/curl|wget|\|\s*(ba)?sh/.test(s.command || ""), false)))
 })
+
+test("wifi: enterprise profiles must pin the server", () => {
+  assert.equal(Wifi.validServerName("radius.example.edu"), true)
+  assert.equal(Wifi.validServerName("example.edu"), true)
+  assert.equal(Wifi.validServerName(""), false)
+  assert.equal(Wifi.validServerName("localhost"), false)
+  assert.equal(Wifi.validServerName("a b.example.com"), false)
+  assert.equal(Wifi.validServerName("x.com; rm -rf"), false)
+  assert.equal(Wifi.validServerName("-bad.example.com"), false)
+})
+
+test("wifi: CA certificate path is blank or a plain absolute certificate file", () => {
+  assert.equal(Wifi.validCaPath(""), true)
+  assert.equal(Wifi.validCaPath("/home/me/certs/ca.pem"), true)
+  assert.equal(Wifi.validCaPath("ca.pem"), false)
+  assert.equal(Wifi.validCaPath("/etc/../shadow.pem"), false)
+  assert.equal(Wifi.validCaPath("/tmp/x y.pem"), false)
+  assert.equal(Wifi.validCaPath("/tmp/ca.pem$(id)"), false)
+  assert.equal(Wifi.validCaPath("/tmp/notacert.sh"), false)
+})

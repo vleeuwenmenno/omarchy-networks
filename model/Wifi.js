@@ -55,6 +55,29 @@ function validSsid(ssid) {
   return !/[\u0000-\u001f\u007f]/.test(t)
 }
 
+// ---- Enterprise trust -----------------------------------------------------
+//
+// PEAP/MSCHAPv2 sends a password-equivalent to whatever answers as the
+// network. A profile is only safe when it pins the RADIUS server: its
+// certificate name must match, and it must chain to a known CA.
+
+// Host name (or suffix) the RADIUS certificate must match, e.g.
+// "radius.example.edu". Letters, digits, dots and hyphens only.
+function validServerName(name) {
+  var t = String(name || "").trim()
+  if (t.length === 0 || t.length > 253) return false
+  return /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$/.test(t)
+}
+
+// Optional CA certificate file. Empty means "the system CA bundle". Otherwise
+// an absolute path to a certificate file, with no shell or control characters.
+function validCaPath(path) {
+  var t = String(path || "")
+  if (t === "") return true
+  if (t.length > 4096) return false
+  return /^\/[A-Za-z0-9._\/+@~-]+\.(pem|crt|cer|der)$/.test(t) && t.indexOf("..") === -1
+}
+
 var HIDDEN_SECURITY = ["wpa-psk", "sae", "open"]
 
 // WifiSecurityType names -> what people call them.

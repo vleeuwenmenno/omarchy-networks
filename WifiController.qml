@@ -98,18 +98,28 @@ Item {
 
   // WPA-Enterprise (PEAP / MSCHAPv2). The password goes in on stdin and is fed
   // to nmcli's editor, never an argument: argv is world-readable in /proc.
-  function connectEnterprise(ssid, identity, password) { if (demo) return;
+  //
+  // PEAP/MSCHAPv2 hands a password-equivalent to whoever answers as the
+  // network, so the server must be pinned: `serverName` (required) must match
+  // the RADIUS certificate, and that certificate must chain to `caPath` or, when
+  // none is given, to the system CA bundle. Never a profile that trusts anyone.
+  function connectEnterprise(ssid, identity, password, serverName, caPath) { if (demo) return;
+    if (!Wifi.validServerName(serverName) || !Wifi.validCaPath(caPath || "")) {
+      failure = "Check the server name and certificate path."
+      return
+    }
     failure = ""
-    enterpriseProcess.command = ["bash", "-c", root._enterpriseScript, "nmcli-eap", ssid, identity]
+    enterpriseProcess.command = ["bash", "-c", root._enterpriseScript, "nmcli-eap", ssid, identity, serverName, caPath || ""]
     enterpriseProcess.running = true
     enterpriseProcess.write(password + "\n")
   }
 
   readonly property string _enterpriseScript:
-    "u=$(uuidgen); IFS= read -r pw;" +
+    "u=$(uuidgen); IFS= read -r pw; trust=(802-1x.system-ca-certs yes);" +
+    " [ -n \"$4\" ] && trust=(802-1x.ca-cert \"$4\");" +
     " nmcli connection add type wifi con-name \"$1\" ssid \"$1\" connection.uuid \"$u\"" +
     " wifi-sec.key-mgmt wpa-eap 802-1x.eap peap 802-1x.phase2-auth mschapv2" +
-    " 802-1x.identity \"$2\" 802-1x.auth-timeout 8 >/dev/null" +
+    " 802-1x.identity \"$2\" 802-1x.domain-suffix-match \"$3\" \"${trust[@]}\" 802-1x.auth-timeout 8 >/dev/null" +
     " && printf 'set 802-1x.password %s\\nsave\\nquit\\n' \"$pw\" | nmcli connection edit uuid \"$u\" >/dev/null" +
     " && nmcli connection up uuid \"$u\"" +
     " || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"

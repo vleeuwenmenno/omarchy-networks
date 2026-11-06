@@ -31,6 +31,8 @@ SectionBase {
   property bool connectEnterprise: false
   property string connectSecurity: ""
   property string connectError: ""
+  property string serverError: ""
+  property string caError: ""
   property var secrets: ({})            // typed text; mutated in place, never bound
 
   // DNS (overview)
@@ -385,8 +387,12 @@ SectionBase {
   function connectItems() {
     var out = [{ type: "button", action: "back", glyph: theme.glyphs.back, title: "Back" }]
     out.push({ type: "header", text: "Connect to " + connectSsid })
-    if (connectEnterprise)
+    if (connectEnterprise) {
       out.push({ type: "field", key: "identity", label: "Username", initial: secrets.identity || "", placeholder: "user@example.com" })
+      out.push({ type: "field", key: "server", label: "Server name", initial: secrets.server || "", placeholder: "radius.example.com", error: serverError })
+      out.push({ type: "field", key: "ca", label: "CA certificate (optional)", initial: secrets.ca || "", placeholder: "/path/ca.pem, blank = system CAs", error: caError })
+      out.push({ type: "text", text: "Enterprise Wi-Fi sends your password to the network. The server name must match its certificate, so a fake network cannot collect it." })
+    }
     out.push({
       type: "field", key: "password", label: connectEnterprise ? "Password" : "Passphrase",
       initial: secrets.password || "", password: true, error: connectError
@@ -488,7 +494,15 @@ SectionBase {
     }
     if (pw === "") { connectError = "Enter the password"; return }
     connectError = ""
-    if (connectEnterprise) wifi.connectEnterprise(connectSsid, secrets.identity || "", pw)
+    serverError = ""
+    caError = ""
+    if (connectEnterprise) {
+      var server = String(secrets.server || "").trim()
+      var ca = String(secrets.ca || "").trim()
+      if (!Wifi.validServerName(server)) { serverError = "Enter the RADIUS server name, e.g. radius.example.com"; return }
+      if (!Wifi.validCaPath(ca)) { caError = "Use an absolute path ending in .pem, .crt, .cer or .der"; return }
+      wifi.connectEnterprise(connectSsid, secrets.identity || "", pw, server, ca)
+    }
     else wifi.connectPsk(connectSsid, pw)
   }
 
@@ -601,6 +615,8 @@ SectionBase {
         connectEnterprise = n.enterprise
         connectSecurity = n.security
         connectError = ""
+        serverError = ""
+        caError = ""
         secrets = ({})
         wifi.failure = ""
         go("connect")
