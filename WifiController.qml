@@ -135,8 +135,10 @@ Item {
   function connectKnown(ssid) { if (demo) return;
     var n = _find(ssid)
     if (!n) return
-    if (_isEnterprise(n) && !checkProcess.running) {
+    if (_isEnterprise(n)) {
       // Look at the saved profile first; connect only if it pins the server.
+      // A repeat click while the check runs does nothing: never connect around it.
+      if (checkProcess.running) return
       _checkSsid = ssid
       checkProcess.command = ["bash", "-c", root._checkScript, "nmcli-check", ssid]
       checkProcess.running = true
