@@ -91,7 +91,7 @@ The plugin runs unsandboxed inside the shell, like every Omarchy plugin. Most of
 - turning off a WireGuard interface that NetworkManager does not manage (`wg-quick down`)
 - letting your user control Tailscale (`tailscale set --operator`)
 
-Wi-Fi passphrases and static DNS servers are handed to `nmcli` and Omarchy's helpers on stdin or through a pipe, never as command-line arguments. Every interface name, address and location code that reaches a command is validated first. Enterprise Wi-Fi (PEAP) profiles are only created with a server name that must match the RADIUS certificate, and a CA file or the system CA bundle, so a lookalike network cannot collect your password. The install help in the empty tabs shows install and `sudo systemctl` commands. You can copy them, or click a button to run one in a terminal window; nothing runs without that click.
+Wi-Fi passphrases and static DNS servers are handed to `nmcli` and Omarchy's helpers on stdin or through a pipe, never as command-line arguments. Every interface name, address and location code that reaches a command is validated first. Enterprise Wi-Fi (PEAP) profiles are only created with a server name that must match the RADIUS certificate, and a CA file or the system CA bundle, so a lookalike network cannot collect your password. A saved enterprise profile that does not pin the server (made by an older version or another tool) is never activated as is: the panel asks for the server name and replaces it. The install help in the empty tabs shows install and `sudo systemctl` commands. You can copy them, or click a button to run one in a terminal window; nothing runs without that click.
 
 ## Development
 

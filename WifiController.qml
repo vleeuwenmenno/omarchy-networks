@@ -54,7 +54,7 @@ Item {
     })
     return out
   }
-  readonly property bool busy: connecting || networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running
+  readonly property bool busy: connecting || networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running || checkProcess.running
 
   // One join attempt, from the click until it works or fails. The panel shows
   // it on the form, and the bar icon spins while it runs, so closing the
@@ -121,11 +121,64 @@ Item {
     if (_watched && !_wasKnown && _watched.known && !_watched.connected) _watched.forget()
   }
 
+  // Saved profiles that would send a password to an unverified server (made
+  // before the form pinned one, or by other tools). Never activated as is.
+  property var staleUuids: []
+  property string _checkSsid: ""
+  // The saved profile for `ssid` must be re-entered with a server name.
+  signal needsPinning(string ssid)
+
+  function _isEnterprise(n) {
+    return n.security === WifiSecurityType.Wpa2Eap || n.security === WifiSecurityType.WpaEap || n.security === WifiSecurityType.Wpa3SuiteB192
+  }
+
   function connectKnown(ssid) { if (demo) return;
     var n = _find(ssid)
     if (!n) return
+    if (_isEnterprise(n) && !checkProcess.running) {
+      // Look at the saved profile first; connect only if it pins the server.
+      _checkSsid = ssid
+      checkProcess.command = ["bash", "-c", root._checkScript, "nmcli-check", ssid]
+      checkProcess.running = true
+      return
+    }
     _begin(ssid, n)
     n.connect()
+  }
+
+  function _checked(text) {
+    var ssid = _checkSsid
+    var n = _find(ssid)
+    if (!n) return
+    var bad = Wifi.parseProfiles(text).filter(function(p) { return Wifi.profileUnpinned(p) && Wifi.validUuid(p.uuid) })
+    if (bad.length === 0) {
+      staleUuids = []
+      _begin(ssid, n)
+      n.connect()
+      return
+    }
+    staleUuids = bad.map(function(p) { return p.uuid })
+    needsPinning(ssid)
+  }
+
+  readonly property string _checkScript:
+    "nmcli -t -f uuid,type connection show | while IFS=: read -r u t; do" +
+    " [ \"$t\" = 802-11-wireless ] || continue;" +
+    " [ \"$(nmcli -g 802-11-wireless.ssid connection show uuid \"$u\")\" = \"$1\" ] || continue;" +
+    " echo \"uuid=$u\";" +
+    " nmcli -t -f 802-1x.eap,802-1x.domain-suffix-match,802-1x.domain-match,802-1x.altsubject-matches,802-1x.subject-match,802-1x.ca-cert,802-1x.system-ca-certs connection show uuid \"$u\";" +
+    " echo --; done"
+
+  Process {
+    id: checkProcess
+    running: false
+    command: []
+    stdout: StdioCollector { id: checkOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      // If the profile cannot be read, do not connect blind.
+      if (exitCode === 0) root._checked(String(checkOut.text || ""))
+      else root._fail("Could not read the saved profile.", true)
+    }
   }
 
   function connectPsk(ssid, passphrase) { if (demo) return;
@@ -153,7 +206,9 @@ Item {
       return
     }
     _begin(ssid, null)
-    enterpriseProcess.command = ["bash", "-c", root._enterpriseScript, "nmcli-eap", ssid, identity, serverName, caPath || ""]
+    // The unpinned profiles this one replaces go away once it connects.
+    var stale = staleUuids.filter(Wifi.validUuid)
+    enterpriseProcess.command = ["bash", "-c", root._enterpriseScript, "nmcli-eap", ssid, identity, serverName, caPath || ""].concat(stale)
     enterpriseProcess.running = true
     enterpriseProcess.write(password + "\n")
   }
@@ -166,6 +221,7 @@ Item {
     " 802-1x.identity \"$2\" 802-1x.domain-suffix-match \"$3\" \"${trust[@]}\" 802-1x.auth-timeout 8 >/dev/null" +
     " && printf 'set 802-1x.password %s\\nsave\\nquit\\n' \"$pw\" | nmcli connection edit uuid \"$u\" >/dev/null" +
     " && nmcli connection up uuid \"$u\"" +
+    " && { shift 4; for o; do nmcli connection delete uuid \"$o\" >/dev/null 2>&1; done; true; }" +
     " || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
 
   // A network that does not announce itself. Same care as enterprise: the
@@ -257,7 +313,7 @@ Item {
     command: []
     stdinEnabled: true
     onExited: function(exitCode) {
-      if (exitCode === 0) root._succeed()
+      if (exitCode === 0) { root.staleUuids = []; root._succeed() }
       else root._fail("Could not connect. Check the username, password and server name.", true)
     }
   }

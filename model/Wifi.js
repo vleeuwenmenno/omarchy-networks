@@ -89,3 +89,40 @@ function securityLabel(name) {
   }
   return labels[name] || ""
 }
+
+// Saved profiles for one SSID, read back from nmcli. Input is the output of
+// the script in WifiController: per profile a `uuid=<uuid>` line, then
+// `field:value` lines (nmcli -t), then `--`.
+function parseProfiles(text) {
+  var out = []
+  var cur = null
+  String(text || "").split("\n").forEach(function(line) {
+    if (line.indexOf("uuid=") === 0) { cur = { uuid: line.slice(5).trim(), f: {} }; return }
+    if (line === "--") { if (cur) out.push(cur); cur = null; return }
+    if (!cur) return
+    var i = line.indexOf(":")
+    if (i > 0) cur.f[line.slice(0, i)] = line.slice(i + 1).trim()
+  })
+  return out
+}
+
+// EAP methods that hand a password-equivalent to the server.
+var PASSWORD_EAP = ["peap", "ttls", "fast", "leap", "pwd", "md5"]
+
+// True when activating this profile would send credentials to whoever answers
+// as the network: a password EAP method with no CA to chain to, or no expected
+// server name. Profiles that are not 802.1x password profiles are fine.
+function profileUnpinned(p) {
+  var f = p.f || {}
+  var methods = String(f["802-1x.eap"] || "").split(";").map(function(m) { return m.trim().toLowerCase() }).filter(Boolean)
+  if (!methods.some(function(m) { return PASSWORD_EAP.indexOf(m) !== -1 })) return false
+  var hasCa = String(f["802-1x.ca-cert"] || "") !== "" || f["802-1x.system-ca-certs"] === "yes"
+  var hasName = ["802-1x.domain-suffix-match", "802-1x.domain-match", "802-1x.altsubject-matches", "802-1x.subject-match"]
+    .some(function(k) { return String(f[k] || "") !== "" })
+  return !(hasCa && hasName)
+}
+
+// uuids safe to hand to nmcli as arguments
+function validUuid(u) {
+  return /^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/.test(String(u || ""))
+}

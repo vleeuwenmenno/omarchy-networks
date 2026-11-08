@@ -804,3 +804,19 @@ test("wifi: CA certificate path is blank or a plain absolute certificate file", 
   assert.equal(Wifi.validCaPath("/tmp/ca.pem$(id)"), false)
   assert.equal(Wifi.validCaPath("/tmp/notacert.sh"), false)
 })
+
+test("wifi: saved PEAP profiles without a pinned server are flagged", () => {
+  const raw = [
+    "uuid=11111111-1111-1111-1111-111111111111", "802-1x.eap:peap", "802-1x.domain-suffix-match:", "802-1x.ca-cert:", "802-1x.system-ca-certs:no", "--",
+    "uuid=22222222-2222-2222-2222-222222222222", "802-1x.eap:peap", "802-1x.domain-suffix-match:radius.example.edu", "802-1x.ca-cert:/etc/ca.pem", "--",
+    "uuid=33333333-3333-3333-3333-333333333333", "802-1x.eap:peap", "802-1x.domain-suffix-match:radius.example.edu", "802-1x.system-ca-certs:yes", "--",
+    "uuid=44444444-4444-4444-4444-444444444444", "802-1x.eap:peap", "802-1x.ca-cert:/etc/ca.pem", "--",
+    "uuid=55555555-5555-5555-5555-555555555555", "802-1x.eap:tls", "--",
+    "uuid=66666666-6666-6666-6666-666666666666", "802-1x.eap:", "--"
+  ].join("\n")
+  const list = Wifi.parseProfiles(raw)
+  assert.equal(list.length, 6)
+  assert.deepEqual(list.map(p => Wifi.profileUnpinned(p)), [true, false, false, true, false, false])
+  assert.equal(Wifi.validUuid(list[0].uuid), true)
+  assert.equal(Wifi.validUuid("x; rm -rf /"), false)
+})

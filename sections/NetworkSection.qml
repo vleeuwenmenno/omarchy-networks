@@ -29,6 +29,7 @@ SectionBase {
   // connect page
   property string connectSsid: ""
   property bool connectEnterprise: false
+  property bool pinNotice: false
   property string connectSecurity: ""
   property string connectError: ""
   property string serverError: ""
@@ -58,6 +59,7 @@ SectionBase {
 
   function go(next) {
     page = next
+    if (next !== "connect") pinNotice = false
     // Keep scanning on the password form: the join needs the access point in view.
     wifi.scanning = next === "wifi" || next === "connect"
     root.cursorRequested(0)
@@ -394,6 +396,7 @@ SectionBase {
       out.push({ type: "field", key: "identity", label: "Username", initial: secrets.identity || "", placeholder: "user@example.com" })
       out.push({ type: "field", key: "server", label: "Server name", initial: secrets.server || "", placeholder: "radius.example.com", error: serverError })
       out.push({ type: "field", key: "ca", label: "CA certificate (optional)", initial: secrets.ca || "", placeholder: "/path/ca.pem, blank = system CAs", error: caError })
+      if (pinNotice) out.push({ type: "text", tone: "urgent", text: "The saved profile for " + connectSsid + " does not check the server's identity. Enter the details again to replace it." })
       out.push({ type: "text", text: "Enterprise Wi-Fi sends your password to the network. The server name must match its certificate, so a fake network cannot collect it." })
     }
     out.push({
@@ -627,6 +630,7 @@ SectionBase {
       else {
         connectSsid = n.ssid
         connectEnterprise = n.enterprise
+        pinNotice = false
         connectSecurity = n.security
         connectError = ""
         serverError = ""
@@ -644,6 +648,24 @@ SectionBase {
     target: root.general
     function onIpSettingsLoaded(uuid, stored) {
       if (root.page === "settings" && root.pageLink && uuid === root.pageLink.uuid) root.populateForm(stored)
+    }
+  }
+
+  // A saved enterprise profile that trusts any server is not reused: ask for
+  // the server name and replace it.
+  Connections {
+    target: root.wifi
+    function onNeedsPinning(ssid) {
+      root.connectSsid = ssid
+      root.connectEnterprise = true
+      root.connectSecurity = "Wpa2Eap"
+      root.connectError = ""
+      root.serverError = ""
+      root.caError = ""
+      root.secrets = ({})
+      root.wifi.failure = ""
+      root.pinNotice = true
+      root.go("connect")
     }
   }
 
