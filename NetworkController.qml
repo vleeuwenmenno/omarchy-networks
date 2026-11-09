@@ -3,6 +3,7 @@ import Quickshell.Io
 import "model/Network.js" as Network
 import "model/IpConfig.js" as IpConfig
 import "model/Demo.js" as Demo
+import "model/Wifi.js" as Wifi
 
 // General networking state: wired and wireless links, plus live traffic stats.
 // Separate from NetworksController (VPN) on purpose: they poll different
@@ -44,7 +45,7 @@ Item {
   property string actionNote: ""
   // device -> desired enabled, until a poll agrees. Throws the switch at once.
   property var pendingLinks: ({})
-  readonly property bool actionBusy: actionProcess.running || _queue.length > 0
+  readonly property bool actionBusy: actionProcess.running || guardProcess.running || _queue.length > 0
   property var _queue: []
   property string _queueNote: ""
 
@@ -65,8 +66,39 @@ Item {
     }
     var cmd = _queue[0]
     _queue = _queue.slice(1)
+    // ["@guard", mode, arg]: check the profile(s) about to be reactivated
+    // before running the rest of the queue. See Wifi.CHECK_SCRIPT.
+    if (cmd[0] === "@guard") {
+      guardProcess.command = ["bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check"].concat(cmd.slice(1))
+      guardProcess.running = true
+      return
+    }
     actionProcess.command = cmd
     actionProcess.running = true
+  }
+
+  function _stop(text) {
+    actionError = text
+    _queue = []
+    pendingLinks = ({})
+    bandPending = ""
+    settle.restart()
+  }
+
+  // Reconnecting re-runs 802.1X authentication. A profile that would send a
+  // password to an unverified server is not reconnected from here.
+  Process {
+    id: guardProcess
+    running: false
+    command: []
+    stdout: StdioCollector { id: guardOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      var list = exitCode === 0 ? Wifi.parseProfiles(String(guardOut.text || "")) : null
+      if (list === null) root._stop("Could not read the connection profile, so nothing was changed.")
+      else if (list.some(Wifi.profileUnpinned))
+        root._stop("This profile does not check the network's server, so it is not reconnected from here. Pick the network in the Wi-Fi list to replace it.")
+      else root._next()
+    }
   }
 
   // Wired links: nmcli connects and disconnects the device itself.
@@ -135,7 +167,8 @@ Item {
     var cmds = Network.bandCommands(value)
     if (cmds.length === 0 || actionProcess.running) return
     bandPending = value
-    _run(cmds, "")
+    // The band helper reconnects the active Wi-Fi profile.
+    _run([["@guard", "active"]].concat(cmds), "")
   }
 
   // A short-lived "that worked" mark, keyed by what was done. Rows read it to
@@ -147,15 +180,24 @@ Item {
   }
 
   // The password goes straight from the Omarchy helper into the clipboard
-  // through a pipe: it is never an argument, and never held here. paste-once
-  // clears it after the first paste.
+  // through a pipe: it is never an argument, and never held here. --sensitive
+  // keeps it out of clipboard history; it is served for one paste, and for
+  // at most a minute if nobody pastes.
   function copyWifiPassword(device) {
     if (demo) { flash("wifi-password"); return }
     if (!Network.validDevice(device) || passwordProcess.running) return
     actionError = ""
-    passwordProcess.command = ["bash", "-c", "set -o pipefail; omarchy-network-password \"$1\" | wl-copy --paste-once", "_", device]
+    passwordProcess.command = ["bash", "-c", root._copyScript, "_", device]
     passwordProcess.running = true
   }
+
+  // `ready` once the password is read; wl-copy then serves it in the
+  // foreground (a timeout of 60 s is not an error). printf is a builtin, so
+  // the password is never in an argv.
+  readonly property string _copyScript:
+    "pw=$(omarchy-network-password \"$1\") || exit 1; echo ready;" +
+    " printf '%s' \"$pw\" | timeout 60 wl-copy --foreground --paste-once --sensitive; r=$?;" +
+    " [ \"$r\" = 124 ] && exit 0; exit \"$r\""
 
   // The QR matrix of the connected Wi-Fi, for the share page.
   property var qr: null
@@ -172,7 +214,8 @@ Item {
   function clearQr() { qr = null; qrError = "" }
 
   function applyIp(uuid, method, value) {
-    _run(IpConfig.applyCommands(uuid, method, value),
+    if (!Wifi.validUuid(uuid)) return
+    _run([["@guard", "uuid", uuid]].concat(IpConfig.applyCommands(uuid, method, value)),
       method === "manual" ? "Static address applied" : "Now using DHCP")
   }
 
@@ -308,10 +351,10 @@ Item {
     id: passwordProcess
     running: false
     command: []
+    stdout: SplitParser { onRead: function(line) { if (line === "ready") root.flash("wifi-password") } }
     stderr: StdioCollector { id: passwordErr; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode === 0) root.flash("wifi-password")
-      else root.actionError = String(passwordErr.text || "").trim().split("\n")[0] || "Could not read the Wi-Fi password"
+      if (exitCode !== 0) root.actionError = String(passwordErr.text || "").trim().split("\n")[0] || "Could not read the Wi-Fi password"
     }
   }
 

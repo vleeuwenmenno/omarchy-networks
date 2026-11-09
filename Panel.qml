@@ -242,10 +242,12 @@ Panel {
   onDemoChanged: if (demo) demoStore.data = Demo.STORE
 
   // Development hooks, for the screenshots in the README: pick what is on
-  // screen, then save the panel to a PNG. Harmless otherwise.
+  // screen, then save the panel to a PNG. Only in demo mode, where every row
+  // is made up (model/Demo.js), so a snapshot never shows real data.
   IpcHandler {
     target: root.ipcTarget + ".dev"
     function view(tab: string, open: string, page: string): string {
+      if (!root.demo) return "demo mode only"
       root.settingsOpen = tab === "settings"
       if (tab !== "settings") root.currentId = tab
       var map = {}
@@ -259,6 +261,8 @@ Panel {
       return "ok"
     }
     function snapshot(path: string): string {
+      if (!root.demo) return "demo mode only"
+      if (!/^\/[A-Za-z0-9._\/-]+\.png$/.test(path) || path.indexOf("..") !== -1) return "path must be an absolute .png path"
       keyCatcher.parent.parent.grabToImage(function(result) { result.saveToFile(path) })
       return "ok"
     }

@@ -54,7 +54,7 @@ Item {
     })
     return out
   }
-  readonly property bool busy: connecting || networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running || checkProcess.running
+  readonly property bool busy: connecting || networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running || checkProcess.running || upProcess.running
 
   // One join attempt, from the click until it works or fails. The panel shows
   // it on the form, and the bar icon spins while it runs, so closing the
@@ -128,48 +128,53 @@ Item {
   // The saved profile for `ssid` must be re-entered with a server name.
   signal needsPinning(string ssid)
 
-  function _isEnterprise(n) {
-    return n.security === WifiSecurityType.Wpa2Eap || n.security === WifiSecurityType.WpaEap || n.security === WifiSecurityType.Wpa3SuiteB192
-  }
-
+  // A saved network is never handed to NetworkManager blind: read every
+  // profile for that SSID first (whatever the access point advertises), and
+  // activate the checked profile by UUID only if none of them is unpinned.
+  // Anything unreadable stops here.
   function connectKnown(ssid) { if (demo) return;
     var n = _find(ssid)
     if (!n) return
-    if (_isEnterprise(n)) {
-      // Look at the saved profile first; connect only if it pins the server.
-      // A repeat click while the check runs does nothing: never connect around it.
-      if (checkProcess.running) return
-      _checkSsid = ssid
-      checkProcess.command = ["bash", "-c", root._checkScript, "nmcli-check", ssid]
-      checkProcess.running = true
+    if (checkProcess.running || upProcess.running) return
+    if (!n.known) {
+      // Nothing saved: an open network, NetworkManager makes a fresh profile.
+      _begin(ssid, n)
+      n.connect()
       return
     }
-    _begin(ssid, n)
-    n.connect()
+    _checkSsid = ssid
+    failure = ""
+    checkProcess.command = ["bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check", "ssid", ssid]
+    checkProcess.running = true
+  }
+
+  function _refuse(ssid, text) {
+    attemptSsid = ssid
+    attemptPhase = "failed"
+    failure = text
   }
 
   function _checked(text) {
     var ssid = _checkSsid
     var n = _find(ssid)
     if (!n) return
-    var bad = Wifi.parseProfiles(text).filter(function(p) { return Wifi.profileUnpinned(p) && Wifi.validUuid(p.uuid) })
-    if (bad.length === 0) {
-      staleUuids = []
-      _begin(ssid, n)
-      n.connect()
+    var list = Wifi.parseProfiles(text)
+    if (list === null) { _refuse(ssid, "Could not read the saved profile, so it was not used."); return }
+    if (list.length === 0) { _refuse(ssid, "Could not find the saved profile for " + ssid + "."); return }
+    var bad = list.filter(Wifi.profileUnpinned)
+    if (bad.length > 0) {
+      staleUuids = bad.map(function(p) { return p.uuid })
+      // Keep NetworkManager from joining them on its own until replaced.
+      autoconnectProcess.command = ["bash", "-c", "for u; do nmcli connection modify uuid \"$u\" connection.autoconnect no; done", "_"].concat(staleUuids)
+      autoconnectProcess.running = true
+      needsPinning(ssid)
       return
     }
-    staleUuids = bad.map(function(p) { return p.uuid })
-    needsPinning(ssid)
+    staleUuids = []
+    _begin(ssid, n)
+    upProcess.command = ["nmcli", "connection", "up", "uuid", Wifi.pickProfile(list).uuid]
+    upProcess.running = true
   }
-
-  readonly property string _checkScript:
-    "nmcli -t -f uuid,type connection show | while IFS=: read -r u t; do" +
-    " [ \"$t\" = 802-11-wireless ] || continue;" +
-    " [ \"$(nmcli -g 802-11-wireless.ssid connection show uuid \"$u\")\" = \"$1\" ] || continue;" +
-    " echo \"uuid=$u\";" +
-    " nmcli -t -f 802-1x.eap,802-1x.domain-suffix-match,802-1x.domain-match,802-1x.altsubject-matches,802-1x.subject-match,802-1x.ca-cert,802-1x.system-ca-certs connection show uuid \"$u\";" +
-    " echo --; done"
 
   Process {
     id: checkProcess
@@ -177,10 +182,25 @@ Item {
     command: []
     stdout: StdioCollector { id: checkOut; waitForEnd: true }
     onExited: function(exitCode) {
-      // If the profile cannot be read, do not connect blind.
       if (exitCode === 0) root._checked(String(checkOut.text || ""))
-      else root._fail("Could not read the saved profile.", true)
+      else root._refuse(root._checkSsid, "Could not read the saved profile, so it was not used.")
     }
+  }
+
+  Process {
+    id: upProcess
+    running: false
+    command: []
+    onExited: function(exitCode) {
+      if (exitCode === 0) root._succeed()
+      else root._fail("Could not connect.", false)
+    }
+  }
+
+  Process {
+    id: autoconnectProcess
+    running: false
+    command: []
   }
 
   function connectPsk(ssid, passphrase) { if (demo) return;

@@ -90,36 +90,92 @@ function securityLabel(name) {
   return labels[name] || ""
 }
 
-// Saved profiles for one SSID, read back from nmcli. Input is the output of
-// the script in WifiController: per profile a `uuid=<uuid>` line, then
-// `field:value` lines (nmcli -t), then `--`.
+// Reads the 802.1X trust settings of saved profiles, so the panel can refuse
+// to activate one that would send a password to an unverified server.
+// Arguments: `ssid <name>` (every Wi-Fi profile for that SSID), `uuid <uuid>`
+// (that one profile) or `active` (every active Wi-Fi profile).
+// Output: per profile `nmcli -t` field lines then `--`, and `done` once
+// everything was read. Any nmcli failure exits non-zero before `done`.
+// SSIDs are compared raw (--escape no), keeping `:` and `\` intact.
+var CHECK_FIELDS = "connection.uuid,connection.type,connection.timestamp," +
+  "802-11-wireless-security.key-mgmt,802-1x.eap,802-1x.domain-suffix-match," +
+  "802-1x.domain-match,802-1x.altsubject-matches,802-1x.ca-cert,802-1x.system-ca-certs"
+
+var CHECK_SCRIPT =
+  "set -o pipefail\n" +
+  "show() { nmcli -t -f " + CHECK_FIELDS + " connection show uuid \"$1\" || exit 1; echo --; }\n" +
+  "case \"$1\" in\n" +
+  "uuid) show \"$2\" ;;\n" +
+  "ssid|active)\n" +
+  "  if [ \"$1\" = active ]; then list=$(nmcli -t -f uuid,type connection show --active) || exit 1\n" +
+  "  else list=$(nmcli -t -f uuid,type connection show) || exit 1; fi\n" +
+  "  while IFS=: read -r u t; do\n" +
+  "    [ -n \"$u\" ] && [ \"$t\" = 802-11-wireless ] || continue\n" +
+  "    if [ \"$1\" = ssid ]; then\n" +
+  "      s=$(nmcli --escape no -g 802-11-wireless.ssid connection show uuid \"$u\"; r=$?; printf x; exit $r) || exit 1\n" +
+  "      s=${s%x}; s=${s%$'\\n'}\n" +
+  "      [ \"$s\" = \"$2\" ] || continue\n" +
+  "    fi\n" +
+  "    show \"$u\"\n" +
+  "  done <<< \"$list\" ;;\n" +
+  "*) exit 2 ;;\n" +
+  "esac\n" +
+  "echo done\n"
+
+// CHECK_SCRIPT output -> [{ uuid, type, timestamp, f }], or null when the
+// output is incomplete or malformed. Callers treat null as "do not connect".
 function parseProfiles(text) {
+  var lines = String(text || "").split("\n")
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop()
+  if (lines.length === 0 || lines[lines.length - 1] !== "done") return null
+  lines.pop()
   var out = []
-  var cur = null
-  String(text || "").split("\n").forEach(function(line) {
-    if (line.indexOf("uuid=") === 0) { cur = { uuid: line.slice(5).trim(), f: {} }; return }
-    if (line === "--") { if (cur) out.push(cur); cur = null; return }
-    if (!cur) return
-    var i = line.indexOf(":")
-    if (i > 0) cur.f[line.slice(0, i)] = line.slice(i + 1).trim()
-  })
+  var cur = {}
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i]
+    if (line === "--") {
+      if (!validUuid(cur["connection.uuid"]) || !cur["connection.type"]) return null
+      out.push({ uuid: cur["connection.uuid"], type: cur["connection.type"],
+                 timestamp: Number(cur["connection.timestamp"]) || 0, f: cur })
+      cur = {}
+      continue
+    }
+    var at = line.indexOf(":")
+    if (at <= 0) return null
+    cur[line.slice(0, at)] = line.slice(at + 1).trim()
+  }
+  if (Object.keys(cur).length > 0) return null
   return out
 }
 
-// EAP methods that hand a password-equivalent to the server.
-var PASSWORD_EAP = ["peap", "ttls", "fast", "leap", "pwd", "md5"]
+var EAP_KEY_MGMT = ["wpa-eap", "wpa-eap-suite-b-192", "ieee8021x"]
 
-// True when activating this profile would send credentials to whoever answers
-// as the network: a password EAP method with no CA to chain to, or no expected
-// server name. Profiles that are not 802.1x password profiles are fine.
+// True when activating this profile could send credentials to whoever answers
+// as the network. An 802.1X profile is only trusted when it checks the server
+// (domain-suffix-match, domain-match or altsubject-matches; subject-match is a
+// substring test and does not count) and has a CA to chain to. EAP-TLS alone
+// sends no password. Missing or unreadable 802.1X data counts as unpinned.
 function profileUnpinned(p) {
-  var f = p.f || {}
-  var methods = String(f["802-1x.eap"] || "").split(";").map(function(m) { return m.trim().toLowerCase() }).filter(Boolean)
-  if (!methods.some(function(m) { return PASSWORD_EAP.indexOf(m) !== -1 })) return false
+  var f = (p && p.f) || {}
+  var mgmt = String(f["802-11-wireless-security.key-mgmt"] || "").toLowerCase()
+  var has8021x = f["802-1x.eap"] !== undefined
+  if (!has8021x && EAP_KEY_MGMT.indexOf(mgmt) === -1) return false
+  // nmcli lists methods comma-separated; accept `;` too.
+  var methods = String(f["802-1x.eap"] || "").split(/[,;]/)
+    .map(function(m) { return m.trim().toLowerCase() }).filter(Boolean)
+  if (methods.length > 0 && methods.every(function(m) { return m === "tls" })) return false
   var hasCa = String(f["802-1x.ca-cert"] || "") !== "" || f["802-1x.system-ca-certs"] === "yes"
-  var hasName = ["802-1x.domain-suffix-match", "802-1x.domain-match", "802-1x.altsubject-matches", "802-1x.subject-match"]
+  var hasName = ["802-1x.domain-suffix-match", "802-1x.domain-match", "802-1x.altsubject-matches"]
     .some(function(k) { return String(f[k] || "") !== "" })
   return !(hasCa && hasName)
+}
+
+// Of the profiles for one network, the one to activate: the most recently
+// used. Callers check none of them is unpinned first.
+function pickProfile(list) {
+  var best = null
+  for (var i = 0; i < list.length; i++) if (!best || list[i].timestamp > best.timestamp) best = list[i]
+  return best
 }
 
 // uuids safe to hand to nmcli as arguments
