@@ -73,7 +73,7 @@ Item {
     // before running the rest of the queue. See Wifi.CHECK_SCRIPT.
     if (cmd[0] === "@guard") {
       _guarded = []
-      guardProcess.command = ["bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check"].concat(cmd.slice(1))
+      guardProcess.command = ["timeout", "-k", "5", "20", "bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check"].concat(cmd.slice(1))
       guardProcess.running = true
       return
     }

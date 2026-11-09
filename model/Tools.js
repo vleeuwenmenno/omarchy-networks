@@ -48,12 +48,12 @@ var GUIDES = {
   },
   mullvad: {
     name: "Mullvad",
-    note: "Mullvad is a privacy VPN with servers in dozens of countries. You need an account number.",
+    note: "Mullvad is a privacy VPN with servers in dozens of countries. You need an account number; `mullvad account login` asks for it, so it stays out of your shell history.",
     docs: "https://mullvad.net/en/download/vpn/linux",
     steps: [
       { stage: "install", label: "Install", command: "omarchy pkg add mullvad-vpn", run: true },
       { stage: "start", label: "Start the daemon", command: "sudo systemctl enable --now mullvad-daemon", run: true },
-      { stage: "login", label: "Log in", command: "mullvad account login <account-number>" }
+      { stage: "login", label: "Log in", command: "mullvad account login" }
     ]
   },
   netbird: {

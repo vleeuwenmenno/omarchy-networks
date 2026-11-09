@@ -105,7 +105,7 @@ Item {
     if (profileBusy) return
     radioPending = true
     failure = ""
-    radioCheckProcess.command = ["bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check", "type", "802-11-wireless"]
+    radioCheckProcess.command = ["timeout", "-k", "5", "20", "bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check", "type", "802-11-wireless"]
     radioCheckProcess.running = true
   }
 
@@ -140,7 +140,7 @@ Item {
     autoconnectState = "working"
     autoconnectSsid = then === "pin" ? _checkSsid : ""
     _autoconnectThen = then
-    autoconnectProcess.command = ["bash", "-c", Wifi.AUTOCONNECT_OFF_SCRIPT, "_"].concat(uuids.filter(Wifi.validUuid))
+    autoconnectProcess.command = ["timeout", "-k", "5", "30", "bash", "-c", Wifi.AUTOCONNECT_OFF_SCRIPT, "_"].concat(uuids.filter(Wifi.validUuid))
     autoconnectProcess.running = true
   }
 
@@ -185,6 +185,9 @@ Item {
   // Saved profiles that would send a password to an unverified server (made
   // before the form pinned one, or by other tools). Never activated as is.
   property var staleUuids: []
+  // The SSID those profiles belong to: only a new profile for that same
+  // network replaces (deletes) them.
+  property string staleSsid: ""
   property string _checkSsid: ""
   // The saved profile for `ssid` must be re-entered with a server name.
   signal needsPinning(string ssid)
@@ -205,7 +208,7 @@ Item {
     }
     _checkSsid = ssid
     failure = ""
-    checkProcess.command = ["bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check", "ssid", ssid]
+    checkProcess.command = ["timeout", "-k", "5", "20", "bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check", "ssid", ssid]
     checkProcess.running = true
   }
 
@@ -230,17 +233,19 @@ Item {
     var bad = list.filter(Wifi.profileUnpinned)
     if (bad.length > 0) {
       staleUuids = bad.map(function(p) { return p.uuid })
+      staleSsid = ssid
       // Keep NetworkManager from joining them on its own until replaced.
       _autoconnectOff(staleUuids, "pin")
       needsPinning(ssid)
       return
     }
     staleUuids = []
+    staleSsid = ""
     var dev = device ? String(device.name || "") : ""
     var pick = /^[A-Za-z0-9._-]{1,15}$/.test(dev) ? Wifi.pickProfile(list, dev) : null
     if (!pick) { _refuse(ssid, "No saved profile for " + ssid + " fits this Wi-Fi adapter."); return }
     _begin(ssid, n)
-    upProcess.command = ["nmcli", "connection", "up", "uuid", pick.uuid, "ifname", dev]
+    upProcess.command = ["timeout", "-k", "5", "100", "nmcli", "connection", "up", "uuid", pick.uuid, "ifname", dev]
     upProcess.running = true
   }
 
@@ -283,12 +288,7 @@ Item {
   function connectPsk(ssid, passphrase) { if (demo) return;
     if (profileBusy) return
     var n = _find(ssid)
-    if (!n) {
-      attemptSsid = ssid
-      attemptPhase = "failed"
-      failure = "That network is out of range. Scan again."
-      return
-    }
+    if (!n) { _refuse(ssid, "That network is out of range. Scan again."); return }
     _begin(ssid, n)
     n.connectWithPsk(passphrase)
   }
@@ -308,8 +308,8 @@ Item {
     }
     _begin(ssid, null)
     // The unpinned profiles this one replaces go away once it connects.
-    var stale = staleUuids.filter(Wifi.validUuid)
-    enterpriseProcess.command = ["bash", "-c", root._enterpriseScript, "nmcli-eap", ssid, identity, serverName, caPath || ""].concat(stale)
+    var stale = staleSsid === ssid ? staleUuids.filter(Wifi.validUuid) : []
+    enterpriseProcess.command = ["timeout", "-k", "5", "120", "bash", "-c", root._enterpriseScript, "nmcli-eap", ssid, identity, serverName, caPath || ""].concat(stale)
     enterpriseProcess.running = true
     enterpriseProcess.write(password + "\n")
   }
@@ -342,7 +342,7 @@ Item {
       return
     }
     _begin(ssid, null)
-    hiddenProcess.command = ["bash", "-c", root._hiddenScript, "nmcli-hidden", ssid, security]
+    hiddenProcess.command = ["timeout", "-k", "5", "120", "bash", "-c", root._hiddenScript, "nmcli-hidden", ssid, security]
     hiddenProcess.running = true
     hiddenProcess.write(password + "\n")
   }
@@ -422,7 +422,10 @@ Item {
     command: []
     stdinEnabled: true
     onExited: function(exitCode) {
-      if (exitCode === 0) { root.staleUuids = []; root._succeed() }
+      if (exitCode === 0) {
+        if (root.staleSsid === root.attemptSsid) { root.staleUuids = []; root.staleSsid = "" }
+        root._succeed()
+      }
       else root._fail("Could not connect. Check the username, password and server name.", true)
     }
   }

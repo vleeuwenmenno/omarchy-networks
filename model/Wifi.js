@@ -171,14 +171,16 @@ var EAP_KEY_MGMT = ["wpa-eap", "wpa-eap-suite-b-192", "ieee8021x"]
 
 // EAP methods that authenticate the server with its certificate, and so are
 // safe once that certificate is pinned. EAP-TLS sends no password at all.
+// EAP-FAST is left out: its PAC provisioning modes can skip the server
+// certificate entirely, so CA and name fields do not protect it.
 // Anything else (MD5 and LEAP have no server authentication; unknown methods
 // are not trusted) makes the profile unpinned whatever else it sets, because
 // NetworkManager may fall back to any method the profile allows.
-var CERT_EAP = ["peap", "ttls", "fast"]
+var CERT_EAP = ["peap", "ttls"]
 
 // True when activating this profile could send credentials to whoever answers
 // as the network. An 802.1X profile is only trusted when every method it
-// allows is EAP-TLS or a certificate-protected method, and, unless it is
+// allows is EAP-TLS, PEAP or TTLS, and, unless it is
 // EAP-TLS only, it checks the server (domain-suffix-match, domain-match or
 // altsubject-matches; subject-match is a substring test and does not count)
 // and has a CA to chain to. Missing or unreadable 802.1X data is unpinned.

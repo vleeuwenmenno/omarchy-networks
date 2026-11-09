@@ -843,6 +843,8 @@ test("wifi: MD5, LEAP and unknown EAP methods are never trusted, even with a CA 
   assert.equal(Wifi.profileUnpinned(prof("peap,md5")), true)
   assert.equal(Wifi.profileUnpinned(prof("leap")), true)
   assert.equal(Wifi.profileUnpinned(prof("peap,sim")), true)
+  // EAP-FAST provisioning can skip the server certificate
+  assert.equal(Wifi.profileUnpinned(prof("fast")), true)
   assert.equal(Wifi.profileUnpinned(prof("peap,ttls")), false)
   assert.equal(Wifi.profileUnpinned(prof("tls,peap")), false)
   assert.equal(Wifi.profileUnpinned({ f: { "802-1x.eap": "tls" } }), false)
