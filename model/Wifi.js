@@ -178,12 +178,12 @@ var EAP_KEY_MGMT = ["wpa-eap", "wpa-eap-suite-b-192", "ieee8021x"]
 // NetworkManager may fall back to any method the profile allows.
 var CERT_EAP = ["peap", "ttls"]
 
-// True when activating this profile could send credentials to whoever answers
-// as the network. An 802.1X profile is only trusted when every method it
-// allows is EAP-TLS, PEAP or TTLS, and, unless it is
-// EAP-TLS only, it checks the server (domain-suffix-match, domain-match or
-// altsubject-matches; subject-match is a substring test and does not count)
-// and has a CA to chain to. Missing or unreadable 802.1X data is unpinned.
+// True when activating this profile could send credentials (or, for EAP-TLS,
+// all traffic) to whoever answers as the network. An 802.1X profile is only
+// trusted when every method it allows is EAP-TLS, PEAP or TTLS, it checks the
+// server (domain-suffix-match, domain-match or altsubject-matches;
+// subject-match is a substring test and does not count) and it has a CA to
+// chain to. Missing or unreadable 802.1X data is unpinned.
 function profileUnpinned(p) {
   var f = (p && p.f) || {}
   var mgmt = String(f["802-11-wireless-security.key-mgmt"] || "").toLowerCase()
@@ -194,11 +194,18 @@ function profileUnpinned(p) {
     .map(function(m) { return m.trim().toLowerCase() }).filter(Boolean)
   if (methods.length === 0) return true
   if (!methods.every(function(m) { return m === "tls" || CERT_EAP.indexOf(m) !== -1 })) return true
-  if (methods.every(function(m) { return m === "tls" })) return false
   var hasCa = String(f["802-1x.ca-cert"] || "") !== "" || f["802-1x.system-ca-certs"] === "yes"
   var hasName = ["802-1x.domain-suffix-match", "802-1x.domain-match", "802-1x.altsubject-matches"]
     .some(function(k) { return String(f[k] || "") !== "" })
   return !(hasCa && hasName)
+}
+
+// A profile that logs in with a client certificate (EAP-TLS). The panel's
+// form makes PEAP profiles, so it cannot replace one of these; the user has
+// to add the CA and server name to it instead.
+function usesCertificateLogin(p) {
+  return String(((p && p.f) || {})["802-1x.eap"] || "").toLowerCase().split(/[,;]/)
+    .some(function(m) { return m.trim() === "tls" })
 }
 
 // Of the profiles for one network, the one to activate on `device`: a client

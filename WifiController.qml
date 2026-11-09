@@ -232,9 +232,15 @@ Item {
     if (list.length === 0) { _refuse(ssid, "Could not find the saved profile for " + ssid + "."); return }
     var bad = list.filter(Wifi.profileUnpinned)
     if (bad.length > 0) {
+      // Keep NetworkManager from joining them on its own until fixed.
+      if (bad.some(Wifi.usesCertificateLogin)) {
+        // The form cannot make certificate (EAP-TLS) profiles: say what to fix.
+        _autoconnectOff(bad.map(function(p) { return p.uuid }), "")
+        _refuse(ssid, "The saved profile for " + ssid + " logs in with a certificate but does not check the network's server, so it was not used. Add a CA certificate and server name to it (nm-connection-editor), then try again.")
+        return
+      }
       staleUuids = bad.map(function(p) { return p.uuid })
       staleSsid = ssid
-      // Keep NetworkManager from joining them on its own until replaced.
       _autoconnectOff(staleUuids, "pin")
       needsPinning(ssid)
       return
@@ -324,13 +330,17 @@ Item {
   readonly property string _enterpriseScript:
     root._historyGuard + "trust=(802-1x.system-ca-certs yes);" +
     " [ -n \"$4\" ] && trust=(802-1x.ca-cert \"$4\");" +
-    " nmcli connection add type wifi con-name \"$1\" ssid \"$1\" connection.uuid \"$u\"" +
+    " nmcli connection add type wifi con-name \"$1\" ssid \"$1\" connection.uuid \"$u\" connection.autoconnect no" +
     " wifi-sec.key-mgmt wpa-eap 802-1x.eap peap 802-1x.phase2-auth mschapv2" +
     " 802-1x.identity \"$2\" 802-1x.domain-suffix-match \"$3\" \"${trust[@]}\" 802-1x.auth-timeout 8 >/dev/null" +
     " && printf 'set 802-1x.password %s\\nsave\\nquit\\n' \"$pw\" | XDG_CACHE_HOME=\"$hist\" nmcli connection edit uuid \"$u\" >/dev/null" +
     " && nmcli connection up uuid \"$u\"" +
+    " && nmcli connection modify uuid \"$u\" connection.autoconnect yes >/dev/null" +
     " && { shift 4; for o; do nmcli connection delete uuid \"$o\" >/dev/null 2>&1; done; true; }" +
     " || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
+
+  // New profiles start with automatic joining off and get it only once they
+  // connected, so one left behind by a killed (timed out) script stays inert.
 
   // A network that does not announce itself. Same care as enterprise: the
   // password arrives on stdin and goes to nmcli's editor, not into argv.
@@ -350,13 +360,14 @@ Item {
   readonly property string _hiddenScript:
     root._historyGuard + "key=\"$2\";" +
     " if [ \"$key\" = open ]; then" +
-    "   nmcli connection add type wifi con-name \"$1\" ssid \"$1\" wifi.hidden yes connection.uuid \"$u\" >/dev/null" +
+    "   nmcli connection add type wifi con-name \"$1\" ssid \"$1\" wifi.hidden yes connection.uuid \"$u\" connection.autoconnect no >/dev/null" +
     "   && nmcli connection up uuid \"$u\";" +
     " else" +
-    "   nmcli connection add type wifi con-name \"$1\" ssid \"$1\" wifi.hidden yes wifi-sec.key-mgmt \"$key\" connection.uuid \"$u\" >/dev/null" +
+    "   nmcli connection add type wifi con-name \"$1\" ssid \"$1\" wifi.hidden yes wifi-sec.key-mgmt \"$key\" connection.uuid \"$u\" connection.autoconnect no >/dev/null" +
     "   && printf 'set wifi-sec.psk %s\\nsave\\nquit\\n' \"$pw\" | XDG_CACHE_HOME=\"$hist\" nmcli connection edit uuid \"$u\" >/dev/null" +
     "   && nmcli connection up uuid \"$u\";" +
-    " fi || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
+    " fi && nmcli connection modify uuid \"$u\" connection.autoconnect yes >/dev/null" +
+    " || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
 
   Process {
     id: hiddenProcess

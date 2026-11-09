@@ -829,7 +829,7 @@ test("wifi: saved PEAP profiles without a pinned server are flagged", () => {
   ).join("\n")
   const list = Wifi.parseProfiles(raw)
   assert.equal(list.length, 10)
-  assert.deepEqual(list.map(p => Wifi.profileUnpinned(p)), [true, false, false, true, false, false, true, true, true, true])
+  assert.deepEqual(list.map(p => Wifi.profileUnpinned(p)), [true, false, false, true, true, false, true, true, true, true])
   assert.equal(Wifi.pickProfile(list.slice(1, 3), "wlan0").uuid, "33333333-3333-3333-3333-333333333333")
   assert.equal(Wifi.validUuid("x; rm -rf /"), false)
   assert.equal(Wifi.autoconnecting(list[0]), true)
@@ -847,7 +847,11 @@ test("wifi: MD5, LEAP and unknown EAP methods are never trusted, even with a CA 
   assert.equal(Wifi.profileUnpinned(prof("fast")), true)
   assert.equal(Wifi.profileUnpinned(prof("peap,ttls")), false)
   assert.equal(Wifi.profileUnpinned(prof("tls,peap")), false)
-  assert.equal(Wifi.profileUnpinned({ f: { "802-1x.eap": "tls" } }), false)
+  // EAP-TLS without a pinned server joins a lookalike network too
+  assert.equal(Wifi.profileUnpinned({ f: { "802-1x.eap": "tls" } }), true)
+  assert.equal(Wifi.profileUnpinned(prof("tls")), false)
+  assert.equal(Wifi.usesCertificateLogin({ f: { "802-1x.eap": "peap,tls" } }), true)
+  assert.equal(Wifi.usesCertificateLogin(prof("peap")), false)
   assert.equal(Wifi.profileUnpinned({ f: { "802-1x.eap": "tls,md5" } }), true)
 })
 
