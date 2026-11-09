@@ -396,7 +396,10 @@ SectionBase {
       out.push({ type: "field", key: "identity", label: "Username", initial: secrets.identity || "", placeholder: "user@example.com" })
       out.push({ type: "field", key: "server", label: "Server name", initial: secrets.server || "", placeholder: "radius.example.com", error: serverError })
       out.push({ type: "field", key: "ca", label: "CA certificate (optional)", initial: secrets.ca || "", placeholder: "/path/ca.pem, blank = system CAs", error: caError })
-      if (pinNotice) out.push({ type: "text", tone: "urgent", text: "The saved profile for " + connectSsid + " does not check the server's identity, so it was not used and will not connect on its own. Enter the details again to replace it." })
+      if (pinNotice) out.push({ type: "text", tone: "urgent", text: "The saved profile for " + connectSsid + " does not check the server's identity, so it was not used. " +
+        (wifi.autoconnectState === "done" ? "It will not connect on its own. "
+         : wifi.autoconnectState === "failed" ? "Its automatic joining could not be turned off. " : "") +
+        "Enter the details again to replace it." })
       out.push({ type: "text", text: "Enterprise Wi-Fi sends your password to the network. The server name must match its certificate, so a fake network cannot collect it." })
     }
     out.push({

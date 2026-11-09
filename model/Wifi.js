@@ -92,12 +92,16 @@ function securityLabel(name) {
 
 // Reads the 802.1X trust settings of saved profiles, so the panel can refuse
 // to activate one that would send a password to an unverified server.
-// Arguments: `ssid <name>` (every Wi-Fi profile for that SSID), `uuid <uuid>`
-// (that one profile) or `active` (every active Wi-Fi profile).
+// Arguments, one of:
+//   ssid <name>     every Wi-Fi profile for that SSID
+//   uuid <uuid>     that one profile
+//   active          every active Wi-Fi profile
+//   type <type>     every profile of that connection type
+//   device <dev>    every profile `nmcli device connect <dev>` could pick
 // Output: per profile `nmcli -t` field lines then `--`, and `done` once
 // everything was read. Any nmcli failure exits non-zero before `done`.
 // SSIDs are compared raw (--escape no), keeping `:` and `\` intact.
-var CHECK_FIELDS = "connection.uuid,connection.type,connection.timestamp," +
+var CHECK_FIELDS = "connection.uuid,connection.type,connection.timestamp,connection.autoconnect," +
   "802-11-wireless-security.key-mgmt,802-1x.eap,802-1x.domain-suffix-match," +
   "802-1x.domain-match,802-1x.altsubject-matches,802-1x.ca-cert,802-1x.system-ca-certs"
 
@@ -106,11 +110,17 @@ var CHECK_SCRIPT =
   "show() { nmcli -t -f " + CHECK_FIELDS + " connection show uuid \"$1\" || exit 1; echo --; }\n" +
   "case \"$1\" in\n" +
   "uuid) show \"$2\" ;;\n" +
-  "ssid|active)\n" +
+  "ssid|active|type|device)\n" +
+  "  want=802-11-wireless\n" +
+  "  if [ \"$1\" = type ]; then want=$2\n" +
+  "  elif [ \"$1\" = device ]; then\n" +
+  "    dt=$(nmcli -e no -g GENERAL.TYPE device show \"$2\") || exit 1\n" +
+  "    case \"$dt\" in wifi) want=802-11-wireless ;; ethernet) want=802-3-ethernet ;; *) want=$dt ;; esac\n" +
+  "  fi\n" +
   "  if [ \"$1\" = active ]; then list=$(nmcli -t -f uuid,type connection show --active) || exit 1\n" +
   "  else list=$(nmcli -t -f uuid,type connection show) || exit 1; fi\n" +
   "  while IFS=: read -r u t; do\n" +
-  "    [ -n \"$u\" ] && [ \"$t\" = 802-11-wireless ] || continue\n" +
+  "    [ -n \"$u\" ] && [ \"$t\" = \"$want\" ] || continue\n" +
   "    if [ \"$1\" = ssid ]; then\n" +
   "      s=$(nmcli --escape no -g 802-11-wireless.ssid connection show uuid \"$u\"; r=$?; printf x; exit $r) || exit 1\n" +
   "      s=${s%x}; s=${s%$'\\n'}\n" +
@@ -121,6 +131,14 @@ var CHECK_SCRIPT =
   "*) exit 2 ;;\n" +
   "esac\n" +
   "echo done\n"
+
+// Turns automatic connection off for each UUID given; stops at the first
+// failure so the caller never reports it done when it is not.
+var AUTOCONNECT_OFF_SCRIPT =
+  "for u; do nmcli connection modify uuid \"$u\" connection.autoconnect no >/dev/null || exit 1; done"
+
+// Profiles that NetworkManager could still join on its own.
+function autoconnecting(p) { return ((p && p.f) || {})["connection.autoconnect"] !== "no" }
 
 // CHECK_SCRIPT output -> [{ uuid, type, timestamp, f }], or null when the
 // output is incomplete or malformed. Callers treat null as "do not connect".

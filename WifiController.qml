@@ -54,7 +54,7 @@ Item {
     })
     return out
   }
-  readonly property bool busy: connecting || networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running || checkProcess.running || upProcess.running
+  readonly property bool busy: connecting || networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running || checkProcess.running || upProcess.running || radioCheckProcess.running || autoconnectProcess.running
 
   // One join attempt, from the click until it works or fails. The panel shows
   // it on the form, and the bar icon spins while it runs, so closing the
@@ -88,20 +88,66 @@ Item {
     return null
   }
 
-  function setRadio(on) { if (demo) return; Networking.wifiEnabled = on }
+  // Turning the radio on lets NetworkManager join saved networks by itself.
+  // First make sure none of those would send a password to an unverified
+  // server: unpinned profiles get automatic connection turned off, and the
+  // radio stays off if that cannot be done.
+  function setRadio(on) { if (demo) return;
+    if (!on) { Networking.wifiEnabled = false; return }
+    if (radioCheckProcess.running || autoconnectProcess.running) return
+    failure = ""
+    radioCheckProcess.command = ["bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check", "type", "802-11-wireless"]
+    radioCheckProcess.running = true
+  }
+
+  function _radioChecked(text) {
+    var list = Wifi.parseProfiles(text)
+    if (list === null) { failure = "Could not read the saved Wi-Fi profiles, so Wi-Fi stays off."; return }
+    var bad = list.filter(function(p) { return Wifi.profileUnpinned(p) && Wifi.autoconnecting(p) })
+    if (bad.length === 0) { Networking.wifiEnabled = true; return }
+    _autoconnectOff(bad.map(function(p) { return p.uuid }), "radio")
+  }
+
+  Process {
+    id: radioCheckProcess
+    running: false
+    command: []
+    stdout: StdioCollector { id: radioCheckOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) root._radioChecked(String(radioCheckOut.text || ""))
+      else root.failure = "Could not read the saved Wi-Fi profiles, so Wi-Fi stays off."
+    }
+  }
+
+  // "" (nothing asked), "working", "done" or "failed": turning off automatic
+  // connection for unpinned profiles. The form only says it is off once it is.
+  property string autoconnectState: ""
+  property string _autoconnectThen: ""
+  function _autoconnectOff(uuids, then) {
+    autoconnectState = "working"
+    _autoconnectThen = then
+    autoconnectProcess.command = ["bash", "-c", Wifi.AUTOCONNECT_OFF_SCRIPT, "_"].concat(uuids.filter(Wifi.validUuid))
+    autoconnectProcess.running = true
+  }
 
   function _begin(ssid, net) {
     failure = ""
     attemptSsid = ssid
     attemptPhase = "connecting"
     _sawConnecting = false
+    _timedOut = false
     _wasKnown = net ? net.known === true : false
     _watched = net
     attemptTimer.restart()
   }
 
+  // True once the attempt timer gave up; NetworkManager may still finish the
+  // same attempt after that, and then it did work.
+  property bool _timedOut: false
+
   function _succeed() {
-    if (attemptPhase !== "connecting") return
+    if (attemptPhase !== "connecting" && !(attemptPhase === "failed" && _timedOut)) return
+    _timedOut = false
     attemptTimer.stop()
     attemptPhase = "connected"
     failure = ""
@@ -115,6 +161,7 @@ Item {
     if (attemptPhase !== "connecting" && attemptPhase !== "failed") return
     attemptTimer.stop()
     attemptPhase = "failed"
+    _timedOut = false
     failure = text
     // A password that did not work leaves a saved profile behind that would be
     // tried again without asking. Drop the one this attempt created.
@@ -165,8 +212,7 @@ Item {
     if (bad.length > 0) {
       staleUuids = bad.map(function(p) { return p.uuid })
       // Keep NetworkManager from joining them on its own until replaced.
-      autoconnectProcess.command = ["bash", "-c", "for u; do nmcli connection modify uuid \"$u\" connection.autoconnect no; done", "_"].concat(staleUuids)
-      autoconnectProcess.running = true
+      if (!autoconnectProcess.running) _autoconnectOff(staleUuids, "pin")
       needsPinning(ssid)
       return
     }
@@ -201,6 +247,14 @@ Item {
     id: autoconnectProcess
     running: false
     command: []
+    onExited: function(exitCode) {
+      root.autoconnectState = exitCode === 0 ? "done" : "failed"
+      if (root._autoconnectThen === "radio") {
+        if (exitCode === 0) Networking.wifiEnabled = true
+        else root.failure = "Could not turn off automatic joining for a saved enterprise profile that does not check the server, so Wi-Fi stays off."
+      }
+      root._autoconnectThen = ""
+    }
   }
 
   function connectPsk(ssid, passphrase) { if (demo) return;
@@ -325,7 +379,7 @@ Item {
     id: attemptTimer
     interval: 30000
     repeat: false
-    onTriggered: root._fail("Timed out. Check the password and the signal.", false)
+    onTriggered: { root._fail("Timed out. Check the password and the signal.", false); root._timedOut = root.attemptPhase === "failed" }
   }
 
   // "Connected" stays readable for a moment, then the state goes quiet.

@@ -278,10 +278,36 @@ function parseBand(text) {
   return out
 }
 
-function bandCommands(value) {
-  if (!/^(auto|2\.4|5|6)$/.test(String(value))) return []
-  return [["omarchy-network-band", String(value)]]
+// Pin (or unpin) the band of one Wi-Fi profile, by UUID, and reconnect it;
+// on failure put the old band back. Arguments: label, NetworkManager band
+// value ("" for auto), the checked UUID. It refuses if that UUID is no longer
+// the active Wi-Fi connection, so it only ever touches the profile that was
+// checked. Same behaviour as omarchy-network-band, which works by name.
+var BAND_SCRIPT =
+  "set -o pipefail\n" +
+  "u=$3\n" +
+  "dev=$(nmcli -e no -g DEVICE,TYPE,STATE device status | awk -F: '$2 == \"wifi\" && $3 == \"connected\" { print $1; exit }') || exit 1\n" +
+  "[ -n \"$dev\" ] || { echo 'No connected Wi-Fi.' >&2; exit 1; }\n" +
+  "[ \"$(nmcli -e no -g GENERAL.CON-UUID device show \"$dev\")\" = \"$u\" ] || { echo 'The Wi-Fi connection changed. Try again.' >&2; exit 1; }\n" +
+  "prev=$(nmcli -e no -g 802-11-wireless.band connection show uuid \"$u\") || exit 1\n" +
+  "[ \"$prev\" = \"$2\" ] && exit 0\n" +
+  "nmcli connection modify uuid \"$u\" 802-11-wireless.band \"$2\" >/dev/null || exit 1\n" +
+  "if ! nmcli connection up uuid \"$u\" >/dev/null 2>&1; then\n" +
+  "  nmcli connection modify uuid \"$u\" 802-11-wireless.band \"$prev\" >/dev/null\n" +
+  "  nmcli connection up uuid \"$u\" >/dev/null 2>&1\n" +
+  "  echo \"Could not connect on $1; went back to the previous band.\" >&2; exit 1\n" +
+  "fi\n"
+
+var NM_BAND = { "auto": "", "2.4": "bg", "5": "a", "6": "6GHz" }
+
+// Command for the band picker, once the active profile `uuid` is checked.
+function bandCommand(value, uuid) {
+  if (!Object.prototype.hasOwnProperty.call(NM_BAND, String(value))) return null
+  if (!/^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/.test(String(uuid || ""))) return null
+  return ["bash", "-c", BAND_SCRIPT, "nmcli-band", bandLabel(String(value)), NM_BAND[value], String(uuid)]
 }
+
+function validBand(value) { return Object.prototype.hasOwnProperty.call(NM_BAND, String(value)) }
 
 function bandLabel(v) { return v === "auto" ? "Auto" : v + " GHz" }
 

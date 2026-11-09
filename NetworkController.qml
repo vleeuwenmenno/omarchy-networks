@@ -49,13 +49,16 @@ Item {
   property var _queue: []
   property string _queueNote: ""
 
+  // One action at a time: a second one while the first (or its profile check)
+  // runs is refused, so a check never authorizes a different action.
   function _run(cmds, note) {
-    if (demo) return
+    if (demo || actionBusy) return false
     actionError = ""
     actionNote = ""
     _queue = cmds.slice()
     _queueNote = note || ""
     _next()
+    return true
   }
 
   function _next() {
@@ -69,13 +72,24 @@ Item {
     // ["@guard", mode, arg]: check the profile(s) about to be reactivated
     // before running the rest of the queue. See Wifi.CHECK_SCRIPT.
     if (cmd[0] === "@guard") {
+      _guarded = []
       guardProcess.command = ["bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check"].concat(cmd.slice(1))
       guardProcess.running = true
       return
     }
+    // ["@band", value]: the band script, aimed at the one profile just checked.
+    if (cmd[0] === "@band") {
+      var wifiProfiles = _guarded.filter(function(p) { return p.type === "802-11-wireless" })
+      var band = wifiProfiles.length === 1 ? Network.bandCommand(cmd[1], wifiProfiles[0].uuid) : null
+      if (!band) { _stop("No single active Wi-Fi connection to change."); return }
+      cmd = band
+    }
     actionProcess.command = cmd
     actionProcess.running = true
   }
+
+  // Profiles the last guard step read (and passed).
+  property var _guarded: []
 
   function _stop(text) {
     actionError = text
@@ -97,7 +111,7 @@ Item {
       if (list === null) root._stop("Could not read the connection profile, so nothing was changed.")
       else if (list.some(Wifi.profileUnpinned))
         root._stop("This profile does not check the network's server, so it is not reconnected from here. Pick the network in the Wi-Fi list to replace it.")
-      else root._next()
+      else { root._guarded = list; root._next() }
     }
   }
 
@@ -106,9 +120,13 @@ Item {
     var next = {}
     for (var k in pendingLinks) next[k] = pendingLinks[k]
     next[device] = on
+    if (actionBusy || !Network.validDevice(device)) return
+    // `nmcli device connect` picks a saved profile itself, so every profile it
+    // could pick is checked first.
+    var cmd = ["nmcli", "device", on ? "connect" : "disconnect", device]
+    if (!_run(on ? [["@guard", "device", device], cmd] : [cmd], "")) return
     pendingLinks = next
     pendingExpiry.restart()
-    _run([["nmcli", "device", on ? "connect" : "disconnect", device]], "")
   }
 
   // The current IPv4 settings of a connection, for the form. Result arrives on
@@ -164,11 +182,10 @@ Item {
     if (!bandProcess.running) bandProcess.running = true
   }
   function setBand(value) {
-    var cmds = Network.bandCommands(value)
-    if (cmds.length === 0 || actionProcess.running) return
-    bandPending = value
-    // The band helper reconnects the active Wi-Fi profile.
-    _run([["@guard", "active"]].concat(cmds), "")
+    if (!Network.validBand(value) || actionBusy) return
+    // Changing band reconnects the active Wi-Fi profile: check it, then change
+    // that profile by UUID.
+    if (_run([["@guard", "active"], ["@band", value]], "")) bandPending = value
   }
 
   // A short-lived "that worked" mark, keyed by what was done. Rows read it to

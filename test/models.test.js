@@ -660,9 +660,13 @@ test("band: status, choices, and a command only for known bands", () => {
   const b = Network.parseBand("band\t5\navailable\t2.4 5 6\nselected\tauto\n")
   assert.deepEqual(b, { band: "5", available: ["2.4", "5", "6"], selected: "auto" })
   assert.deepEqual(Network.parseBand(""), { band: "", available: [], selected: "auto" })
-  assert.deepEqual(Network.bandCommands("5"), [["omarchy-network-band", "5"]])
-  assert.deepEqual(Network.bandCommands("auto"), [["omarchy-network-band", "auto"]])
-  assert.deepEqual(Network.bandCommands("7; reboot"), [])
+  const u = "11111111-1111-1111-1111-111111111111"
+  assert.deepEqual(Network.bandCommand("5", u).slice(3), ["nmcli-band", "5 GHz", "a", u])
+  assert.deepEqual(Network.bandCommand("auto", u).slice(3), ["nmcli-band", "Auto", "", u])
+  assert.deepEqual(Network.bandCommand("6", u).slice(4), ["6 GHz", "6GHz", u])
+  assert.equal(Network.bandCommand("7; reboot", u), null)
+  assert.equal(Network.bandCommand("5", "x; reboot"), null)
+  assert.equal(Network.validBand("2.4"), true)
   assert.equal(Network.bandLabel("2.4"), "2.4 GHz")
 })
 
@@ -828,6 +832,8 @@ test("wifi: saved PEAP profiles without a pinned server are flagged", () => {
   assert.deepEqual(list.map(p => Wifi.profileUnpinned(p)), [true, false, false, true, false, false, true, true, true, false])
   assert.equal(Wifi.pickProfile(list.slice(1, 3)).uuid, "33333333-3333-3333-3333-333333333333")
   assert.equal(Wifi.validUuid("x; rm -rf /"), false)
+  assert.equal(Wifi.autoconnecting(list[0]), true)
+  assert.equal(Wifi.autoconnecting({ f: { "connection.autoconnect": "no" } }), false)
 })
 
 test("wifi: profile check output that is incomplete or malformed is refused", () => {
