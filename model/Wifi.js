@@ -98,6 +98,7 @@ function securityLabel(name) {
 //   active          every active Wi-Fi profile
 //   type <type>     every profile of that connection type
 //   device <dev>    every profile `nmcli device connect <dev>` could pick
+//                   (Wi-Fi and Ethernet devices only; anything else fails)
 // Output: per profile `nmcli -t` field lines then `--`, and `done` once
 // everything was read. Any nmcli failure exits non-zero before `done`.
 // SSIDs are compared raw (--escape no), keeping `:` and `\` intact.
@@ -116,7 +117,7 @@ var CHECK_SCRIPT =
   "  if [ \"$1\" = type ]; then want=$2\n" +
   "  elif [ \"$1\" = device ]; then\n" +
   "    dt=$(nmcli -e no -g GENERAL.TYPE device show \"$2\") || exit 1\n" +
-  "    case \"$dt\" in wifi) want=802-11-wireless ;; ethernet) want=802-3-ethernet ;; *) want=$dt ;; esac\n" +
+  "    case \"$dt\" in wifi) want=802-11-wireless ;; ethernet) want=802-3-ethernet ;; *) exit 3 ;; esac\n" +
   "  fi\n" +
   "  if [ \"$1\" = active ]; then list=$(nmcli -t -f uuid,type connection show --active) || exit 1\n" +
   "  else list=$(nmcli -t -f uuid,type connection show) || exit 1; fi\n" +

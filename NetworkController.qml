@@ -218,6 +218,7 @@ Item {
 
   // The QR matrix of the connected Wi-Fi, for the share page.
   property var qr: null
+  property var _qrLines: []
   property string qrError: ""
   readonly property bool qrLoading: qrProcess.running
   function loadQr(device) {
@@ -379,10 +380,16 @@ Item {
     id: qrProcess
     running: false
     command: []
-    stdout: StdioCollector { id: qrOut; waitForEnd: true }
+    // The matrix encodes the Wi-Fi password: collect it line by line into a
+    // buffer that is emptied once parsed, rather than a collector that keeps
+    // the last output around.
+    stdout: SplitParser { onRead: function(line) { root._qrLines.push(line) } }
     stderr: StdioCollector { id: qrErr; waitForEnd: true }
+    onStarted: root._qrLines = []
     onExited: function(exitCode) {
-      var parsed = exitCode === 0 ? Network.parseQr(String(qrOut.text || "")) : null
+      var text = root._qrLines.join("\n")
+      root._qrLines = []
+      var parsed = exitCode === 0 ? Network.parseQr(text) : null
       if (parsed) { root.qr = parsed; root.qrError = "" }
       else root.qrError = String(qrErr.text || "").trim().split("\n")[0] || "Could not make a QR code for this network"
     }

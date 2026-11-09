@@ -272,7 +272,7 @@ Item {
     command: []
     onExited: function(exitCode) {
       if (exitCode === 0) root._succeed()
-      else root._fail("Could not connect.", false)
+      else if (!root._timedOut) root._fail("Could not connect.", false)
     }
   }
 
@@ -312,7 +312,10 @@ Item {
       failure = "Check the server name and certificate path."
       return
     }
-    _begin(ssid, null)
+    _begin(ssid, _find(ssid))
+    // Watch the network too, as for the other joins: NetworkManager's failure
+    // reason shows, and when the attempt times out the profile it made is
+    // forgotten, which also stops an activation still running.
     // The unpinned profiles this one replaces go away once it connects.
     var stale = staleSsid === ssid ? staleUuids.filter(Wifi.validUuid) : []
     enterpriseProcess.command = ["timeout", "-k", "5", "120", "bash", "-c", root._enterpriseScript, "nmcli-eap", ssid, identity, serverName, caPath || ""].concat(stale)
@@ -322,7 +325,9 @@ Item {
 
   // nmcli's editor writes every command it reads, the password line included,
   // to $XDG_CACHE_HOME/nmcli-history (0644 under the usual umask). Point it at
-  // a private directory that is removed when the script ends.
+  // a private directory that is removed when the script ends. Only a SIGKILL
+  // (the timeout's last resort) skips that cleanup; the directory is 0700 and
+  // its file 0600, so what it leaves is readable by this user only.
   readonly property string _historyGuard:
     "umask 077; hist=$(mktemp -d) || exit 1; trap 'rm -rf \"$hist\"' EXIT;" +
     " u=$(uuidgen); IFS= read -r pw; "
@@ -351,7 +356,7 @@ Item {
       failure = "Check the network name and security."
       return
     }
-    _begin(ssid, null)
+    _begin(ssid, _find(ssid))
     hiddenProcess.command = ["timeout", "-k", "5", "120", "bash", "-c", root._hiddenScript, "nmcli-hidden", ssid, security]
     hiddenProcess.running = true
     hiddenProcess.write(password + "\n")
@@ -376,7 +381,10 @@ Item {
     stdinEnabled: true
     onExited: function(exitCode) {
       if (exitCode === 0) root._succeed()
-      else root._fail("Could not join. Check the name, security and password.", true)
+      // After the attempt timer gave up, the script's own failure (often its
+      // timeout) adds nothing; for a saved network the watcher still shows a
+      // late join.
+      else if (!root._timedOut) root._fail("Could not join. Check the name, security and password.", true)
     }
   }
 
@@ -437,7 +445,7 @@ Item {
         if (root.staleSsid === root.attemptSsid) { root.staleUuids = []; root.staleSsid = "" }
         root._succeed()
       }
-      else root._fail("Could not connect. Check the username, password and server name.", true)
+      else if (!root._timedOut) root._fail("Could not connect. Check the username, password and server name.", true)
     }
   }
 
