@@ -99,7 +99,7 @@ SectionBase {
   }
 
   function linkEnabled(link, wireless) {
-    if (wireless) return wifi.radioOn
+    if (wireless) return wifi.radioOn || wifi.radioPending
     var pending = general.pendingLinks[link.device]
     return pending === undefined ? link.connected : pending
   }
@@ -265,6 +265,8 @@ SectionBase {
     for (var i = 0; i < wired.length; i++) out = out.concat(linkItems(wired[i], false))
     for (var j = 0; j < wireless.length; j++) out = out.concat(linkItems(wireless[j], true))
     if (general.actionError !== "") out.push({ type: "text", tone: "urgent", text: general.actionError })
+    // Why Wi-Fi did not come on (see WifiController.setRadio).
+    if (!wifi.radioOn && wifi.failure !== "") out.push({ type: "text", tone: "urgent", text: wifi.failure })
     if (wired.length > 0 || wireless.length > 0) out = out.concat(dnsItems())
     if (wired.length === 0 && wireless.length === 0) {
       if (!general.loaded) out.push({ type: "status", text: "Checking…" })
@@ -338,7 +340,8 @@ SectionBase {
       })
     out.push({ type: "header", text: "Wi-Fi networks" })
     if (!wifi.radioOn) {
-      out.push({ type: "text", text: "Wi-Fi is off. Turn it on from the overview." })
+      if (wifi.failure !== "") out.push({ type: "text", tone: "urgent", text: wifi.failure })
+      out.push({ type: "text", text: wifi.radioPending ? "Checking saved networks before turning Wi-Fi on…" : "Wi-Fi is off. Turn it on from the overview." })
       return out
     }
     if (wifi.failure !== "") out.push({ type: "text", tone: "urgent", text: wifi.failure })
@@ -397,7 +400,8 @@ SectionBase {
       out.push({ type: "field", key: "server", label: "Server name", initial: secrets.server || "", placeholder: "radius.example.com", error: serverError })
       out.push({ type: "field", key: "ca", label: "CA certificate (optional)", initial: secrets.ca || "", placeholder: "/path/ca.pem, blank = system CAs", error: caError })
       if (pinNotice) out.push({ type: "text", tone: "urgent", text: "The saved profile for " + connectSsid + " does not check the server's identity, so it was not used. " +
-        (wifi.autoconnectState === "done" ? "It will not connect on its own. "
+        (wifi.autoconnectSsid !== connectSsid ? ""
+         : wifi.autoconnectState === "done" ? "It will not connect on its own. "
          : wifi.autoconnectState === "failed" ? "Its automatic joining could not be turned off. " : "") +
         "Enter the details again to replace it." })
       out.push({ type: "text", text: "Enterprise Wi-Fi sends your password to the network. The server name must match its certificate, so a fake network cannot collect it." })
@@ -591,7 +595,7 @@ SectionBase {
     if (page === "" && (t === "t" || t === "T")) {
       var row = itemAtCursor()
       if (row && row.link) {
-        if (row.wireless) wifi.setRadio(!wifi.radioOn)
+        if (row.wireless) wifi.setRadio(!(wifi.radioOn || wifi.radioPending))
         else general.setLinkEnabled(row.link.device, !linkEnabled(row.link, false))
       }
       return
@@ -609,7 +613,7 @@ SectionBase {
   onItemActivated: function(item) {
     switch (item.action) {
     case "link":
-      if (item.wireless) wifi.setRadio(!wifi.radioOn)
+      if (item.wireless) wifi.setRadio(!(wifi.radioOn || wifi.radioPending))
       else general.setLinkEnabled(item.link.device, !linkEnabled(item.link, false))
       break
     case "link-collapse": toggleLinkOpen(item.link.device); break

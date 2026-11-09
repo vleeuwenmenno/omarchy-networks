@@ -54,7 +54,12 @@ Item {
     })
     return out
   }
-  readonly property bool busy: connecting || networks.some(function(n) { return n.busy }) || enterpriseProcess.running || hiddenProcess.running || checkProcess.running || upProcess.running || radioCheckProcess.running || autoconnectProcess.running
+  // Every step that reads, changes or activates a saved profile. Only one runs
+  // at a time, and a new join or radio-on waits for it: no result of one step
+  // is ever taken for another.
+  readonly property bool profileBusy: checkProcess.running || upProcess.running || enterpriseProcess.running
+    || hiddenProcess.running || radioCheckProcess.running || autoconnectProcess.running
+  readonly property bool busy: connecting || profileBusy || networks.some(function(n) { return n.busy })
 
   // One join attempt, from the click until it works or fails. The panel shows
   // it on the form, and the bar icon spins while it runs, so closing the
@@ -92,19 +97,24 @@ Item {
   // First make sure none of those would send a password to an unverified
   // server: unpinned profiles get automatic connection turned off, and the
   // radio stays off if that cannot be done.
+  // True from "turn on" until the radio is on or the request is dropped.
+  // "Turn off" drops it, so a slow check never turns Wi-Fi back on later.
+  property bool radioPending: false
   function setRadio(on) { if (demo) return;
-    if (!on) { Networking.wifiEnabled = false; return }
-    if (radioCheckProcess.running || autoconnectProcess.running) return
+    if (!on) { radioPending = false; Networking.wifiEnabled = false; return }
+    if (profileBusy) return
+    radioPending = true
     failure = ""
     radioCheckProcess.command = ["bash", "-c", Wifi.CHECK_SCRIPT, "nmcli-check", "type", "802-11-wireless"]
     radioCheckProcess.running = true
   }
 
   function _radioChecked(text) {
+    if (!radioPending) return
     var list = Wifi.parseProfiles(text)
-    if (list === null) { failure = "Could not read the saved Wi-Fi profiles, so Wi-Fi stays off."; return }
+    if (list === null) { radioPending = false; failure = "Could not read the saved Wi-Fi profiles, so Wi-Fi stays off."; return }
     var bad = list.filter(function(p) { return Wifi.profileUnpinned(p) && Wifi.autoconnecting(p) })
-    if (bad.length === 0) { Networking.wifiEnabled = true; return }
+    if (bad.length === 0) { radioPending = false; Networking.wifiEnabled = true; return }
     _autoconnectOff(bad.map(function(p) { return p.uuid }), "radio")
   }
 
@@ -115,16 +125,20 @@ Item {
     stdout: StdioCollector { id: radioCheckOut; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode === 0) root._radioChecked(String(radioCheckOut.text || ""))
-      else root.failure = "Could not read the saved Wi-Fi profiles, so Wi-Fi stays off."
+      else if (root.radioPending) { root.radioPending = false; root.failure = "Could not read the saved Wi-Fi profiles, so Wi-Fi stays off." }
     }
   }
 
   // "" (nothing asked), "working", "done" or "failed": turning off automatic
   // connection for unpinned profiles. The form only says it is off once it is.
   property string autoconnectState: ""
+  // Which SSID the "pin" batch belongs to: the form only shows the state for
+  // its own network.
+  property string autoconnectSsid: ""
   property string _autoconnectThen: ""
   function _autoconnectOff(uuids, then) {
     autoconnectState = "working"
+    autoconnectSsid = then === "pin" ? _checkSsid : ""
     _autoconnectThen = then
     autoconnectProcess.command = ["bash", "-c", Wifi.AUTOCONNECT_OFF_SCRIPT, "_"].concat(uuids.filter(Wifi.validUuid))
     autoconnectProcess.running = true
@@ -182,7 +196,7 @@ Item {
   function connectKnown(ssid) { if (demo) return;
     var n = _find(ssid)
     if (!n) return
-    if (checkProcess.running || upProcess.running) return
+    if (profileBusy) return
     if (!n.known) {
       // Nothing saved: an open network, NetworkManager makes a fresh profile.
       _begin(ssid, n)
@@ -195,7 +209,12 @@ Item {
     checkProcess.running = true
   }
 
+  // Ends an attempt that never reached NetworkManager. Drops anything a
+  // previous attempt left behind, so its late result cannot land on this one.
   function _refuse(ssid, text) {
+    attemptTimer.stop()
+    _timedOut = false
+    _watched = null
     attemptSsid = ssid
     attemptPhase = "failed"
     failure = text
@@ -212,13 +231,16 @@ Item {
     if (bad.length > 0) {
       staleUuids = bad.map(function(p) { return p.uuid })
       // Keep NetworkManager from joining them on its own until replaced.
-      if (!autoconnectProcess.running) _autoconnectOff(staleUuids, "pin")
+      _autoconnectOff(staleUuids, "pin")
       needsPinning(ssid)
       return
     }
     staleUuids = []
+    var dev = device ? String(device.name || "") : ""
+    var pick = /^[A-Za-z0-9._-]{1,15}$/.test(dev) ? Wifi.pickProfile(list, dev) : null
+    if (!pick) { _refuse(ssid, "No saved profile for " + ssid + " fits this Wi-Fi adapter."); return }
     _begin(ssid, n)
-    upProcess.command = ["nmcli", "connection", "up", "uuid", Wifi.pickProfile(list).uuid]
+    upProcess.command = ["nmcli", "connection", "up", "uuid", pick.uuid, "ifname", dev]
     upProcess.running = true
   }
 
@@ -249,7 +271,8 @@ Item {
     command: []
     onExited: function(exitCode) {
       root.autoconnectState = exitCode === 0 ? "done" : "failed"
-      if (root._autoconnectThen === "radio") {
+      if (root._autoconnectThen === "radio" && root.radioPending) {
+        root.radioPending = false
         if (exitCode === 0) Networking.wifiEnabled = true
         else root.failure = "Could not turn off automatic joining for a saved enterprise profile that does not check the server, so Wi-Fi stays off."
       }
@@ -258,6 +281,7 @@ Item {
   }
 
   function connectPsk(ssid, passphrase) { if (demo) return;
+    if (profileBusy) return
     var n = _find(ssid)
     if (!n) {
       attemptSsid = ssid
@@ -277,6 +301,7 @@ Item {
   // the RADIUS certificate, and that certificate must chain to `caPath` or, when
   // none is given, to the system CA bundle. Never a profile that trusts anyone.
   function connectEnterprise(ssid, identity, password, serverName, caPath) { if (demo) return;
+    if (profileBusy) return
     if (!Wifi.validServerName(serverName) || !Wifi.validCaPath(caPath || "")) {
       failure = "Check the server name and certificate path."
       return
@@ -311,6 +336,7 @@ Item {
   // password arrives on stdin and goes to nmcli's editor, not into argv.
   // `security` is one of Wifi.HIDDEN_SECURITY.
   function connectHidden(ssid, security, password) { if (demo) return;
+    if (profileBusy) return
     if (!Wifi.validSsid(ssid) || Wifi.HIDDEN_SECURITY.indexOf(security) === -1) {
       failure = "Check the network name and security."
       return

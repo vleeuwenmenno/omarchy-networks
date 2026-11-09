@@ -829,11 +829,37 @@ test("wifi: saved PEAP profiles without a pinned server are flagged", () => {
   ).join("\n")
   const list = Wifi.parseProfiles(raw)
   assert.equal(list.length, 10)
-  assert.deepEqual(list.map(p => Wifi.profileUnpinned(p)), [true, false, false, true, false, false, true, true, true, false])
-  assert.equal(Wifi.pickProfile(list.slice(1, 3)).uuid, "33333333-3333-3333-3333-333333333333")
+  assert.deepEqual(list.map(p => Wifi.profileUnpinned(p)), [true, false, false, true, false, false, true, true, true, true])
+  assert.equal(Wifi.pickProfile(list.slice(1, 3), "wlan0").uuid, "33333333-3333-3333-3333-333333333333")
   assert.equal(Wifi.validUuid("x; rm -rf /"), false)
   assert.equal(Wifi.autoconnecting(list[0]), true)
   assert.equal(Wifi.autoconnecting({ f: { "connection.autoconnect": "no" } }), false)
+})
+
+test("wifi: MD5, LEAP and unknown EAP methods are never trusted, even with a CA and server name", () => {
+  const pinned = { "802-1x.system-ca-certs": "yes", "802-1x.domain-suffix-match": "radius.example.edu" }
+  const prof = eap => ({ f: Object.assign({ "802-1x.eap": eap }, pinned) })
+  assert.equal(Wifi.profileUnpinned(prof("md5")), true)
+  assert.equal(Wifi.profileUnpinned(prof("peap,md5")), true)
+  assert.equal(Wifi.profileUnpinned(prof("leap")), true)
+  assert.equal(Wifi.profileUnpinned(prof("peap,sim")), true)
+  assert.equal(Wifi.profileUnpinned(prof("peap,ttls")), false)
+  assert.equal(Wifi.profileUnpinned(prof("tls,peap")), false)
+  assert.equal(Wifi.profileUnpinned({ f: { "802-1x.eap": "tls" } }), false)
+  assert.equal(Wifi.profileUnpinned({ f: { "802-1x.eap": "tls,md5" } }), true)
+})
+
+test("wifi: the profile to join is a client profile for this adapter", () => {
+  const p = (uuid, ts, extra) => ({ uuid, type: "802-11-wireless", timestamp: ts, f: extra || {} })
+  const list = [
+    p("a", 10, { "802-11-wireless.mode": "infrastructure" }),
+    p("b", 30, { "802-11-wireless.mode": "ap" }),
+    p("c", 20, { "802-11-wireless.mode": "infrastructure", "connection.interface-name": "wlan1" }),
+    p("d", 15, { "802-11-wireless.mode": "", "connection.interface-name": "wlan0" })
+  ]
+  assert.equal(Wifi.pickProfile(list, "wlan0").uuid, "d")
+  assert.equal(Wifi.pickProfile(list, "wlan1").uuid, "c")
+  assert.equal(Wifi.pickProfile([list[1]], "wlan0"), null)
 })
 
 test("wifi: profile check output that is incomplete or malformed is refused", () => {

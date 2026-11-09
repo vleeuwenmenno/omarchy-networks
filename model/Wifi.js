@@ -102,6 +102,7 @@ function securityLabel(name) {
 // everything was read. Any nmcli failure exits non-zero before `done`.
 // SSIDs are compared raw (--escape no), keeping `:` and `\` intact.
 var CHECK_FIELDS = "connection.uuid,connection.type,connection.timestamp,connection.autoconnect," +
+  "connection.interface-name,802-11-wireless.mode," +
   "802-11-wireless-security.key-mgmt,802-1x.eap,802-1x.domain-suffix-match," +
   "802-1x.domain-match,802-1x.altsubject-matches,802-1x.ca-cert,802-1x.system-ca-certs"
 
@@ -168,11 +169,19 @@ function parseProfiles(text) {
 
 var EAP_KEY_MGMT = ["wpa-eap", "wpa-eap-suite-b-192", "ieee8021x"]
 
+// EAP methods that authenticate the server with its certificate, and so are
+// safe once that certificate is pinned. EAP-TLS sends no password at all.
+// Anything else (MD5 and LEAP have no server authentication; unknown methods
+// are not trusted) makes the profile unpinned whatever else it sets, because
+// NetworkManager may fall back to any method the profile allows.
+var CERT_EAP = ["peap", "ttls", "fast"]
+
 // True when activating this profile could send credentials to whoever answers
-// as the network. An 802.1X profile is only trusted when it checks the server
-// (domain-suffix-match, domain-match or altsubject-matches; subject-match is a
-// substring test and does not count) and has a CA to chain to. EAP-TLS alone
-// sends no password. Missing or unreadable 802.1X data counts as unpinned.
+// as the network. An 802.1X profile is only trusted when every method it
+// allows is EAP-TLS or a certificate-protected method, and, unless it is
+// EAP-TLS only, it checks the server (domain-suffix-match, domain-match or
+// altsubject-matches; subject-match is a substring test and does not count)
+// and has a CA to chain to. Missing or unreadable 802.1X data is unpinned.
 function profileUnpinned(p) {
   var f = (p && p.f) || {}
   var mgmt = String(f["802-11-wireless-security.key-mgmt"] || "").toLowerCase()
@@ -181,18 +190,30 @@ function profileUnpinned(p) {
   // nmcli lists methods comma-separated; accept `;` too.
   var methods = String(f["802-1x.eap"] || "").split(/[,;]/)
     .map(function(m) { return m.trim().toLowerCase() }).filter(Boolean)
-  if (methods.length > 0 && methods.every(function(m) { return m === "tls" })) return false
+  if (methods.length === 0) return true
+  if (!methods.every(function(m) { return m === "tls" || CERT_EAP.indexOf(m) !== -1 })) return true
+  if (methods.every(function(m) { return m === "tls" })) return false
   var hasCa = String(f["802-1x.ca-cert"] || "") !== "" || f["802-1x.system-ca-certs"] === "yes"
   var hasName = ["802-1x.domain-suffix-match", "802-1x.domain-match", "802-1x.altsubject-matches"]
     .some(function(k) { return String(f[k] || "") !== "" })
   return !(hasCa && hasName)
 }
 
-// Of the profiles for one network, the one to activate: the most recently
-// used. Callers check none of them is unpinned first.
-function pickProfile(list) {
+// Of the profiles for one network, the one to activate on `device`: a client
+// (infrastructure) profile not bound to another interface, most recently used
+// first. Null when there is none. Callers check none is unpinned first.
+function pickProfile(list, device) {
   var best = null
-  for (var i = 0; i < list.length; i++) if (!best || list[i].timestamp > best.timestamp) best = list[i]
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i]
+    var f = p.f || {}
+    var mode = String(f["802-11-wireless.mode"] || "")
+    var ifname = String(f["connection.interface-name"] || "")
+    if (p.type !== "802-11-wireless") continue
+    if (mode !== "" && mode !== "infrastructure") continue
+    if (ifname !== "" && ifname !== device) continue
+    if (!best || p.timestamp > best.timestamp) best = p
+  }
   return best
 }
 
