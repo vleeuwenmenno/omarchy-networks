@@ -219,6 +219,8 @@ Item {
   // The QR matrix of the connected Wi-Fi, for the share page.
   property var qr: null
   property var _qrLines: []
+  // False once the QR page is left: output that arrives after that is dropped.
+  property bool _qrWanted: false
   property string qrError: ""
   readonly property bool qrLoading: qrProcess.running
   function loadQr(device) {
@@ -226,10 +228,11 @@ Item {
     if (!Network.validDevice(device) || qrProcess.running) return
     qr = null
     qrError = ""
+    _qrWanted = true
     qrProcess.command = ["omarchy-network-qr", "--meta", device]
     qrProcess.running = true
   }
-  function clearQr() { qr = null; qrError = "" }
+  function clearQr() { _qrWanted = false; _qrLines = []; qr = null; qrError = "" }
 
   function applyIp(uuid, method, value) {
     if (!Wifi.validUuid(uuid)) return
@@ -383,12 +386,13 @@ Item {
     // The matrix encodes the Wi-Fi password: collect it line by line into a
     // buffer that is emptied once parsed, rather than a collector that keeps
     // the last output around.
-    stdout: SplitParser { onRead: function(line) { root._qrLines.push(line) } }
+    stdout: SplitParser { onRead: function(line) { if (root._qrWanted) root._qrLines.push(line) } }
     stderr: StdioCollector { id: qrErr; waitForEnd: true }
     onStarted: root._qrLines = []
     onExited: function(exitCode) {
       var text = root._qrLines.join("\n")
       root._qrLines = []
+      if (!root._qrWanted) return
       var parsed = exitCode === 0 ? Network.parseQr(text) : null
       if (parsed) { root.qr = parsed; root.qrError = "" }
       else root.qrError = String(qrErr.text || "").trim().split("\n")[0] || "Could not make a QR code for this network"
