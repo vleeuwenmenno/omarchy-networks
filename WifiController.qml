@@ -215,13 +215,20 @@ Item {
     enterpriseProcess.write(password + "\n")
   }
 
+  // nmcli's editor writes every command it reads, the password line included,
+  // to $XDG_CACHE_HOME/nmcli-history (0644 under the usual umask). Point it at
+  // a private directory that is removed when the script ends.
+  readonly property string _historyGuard:
+    "umask 077; hist=$(mktemp -d) || exit 1; trap 'rm -rf \"$hist\"' EXIT;" +
+    " u=$(uuidgen); IFS= read -r pw; "
+
   readonly property string _enterpriseScript:
-    "u=$(uuidgen); IFS= read -r pw; trust=(802-1x.system-ca-certs yes);" +
+    root._historyGuard + "trust=(802-1x.system-ca-certs yes);" +
     " [ -n \"$4\" ] && trust=(802-1x.ca-cert \"$4\");" +
     " nmcli connection add type wifi con-name \"$1\" ssid \"$1\" connection.uuid \"$u\"" +
     " wifi-sec.key-mgmt wpa-eap 802-1x.eap peap 802-1x.phase2-auth mschapv2" +
     " 802-1x.identity \"$2\" 802-1x.domain-suffix-match \"$3\" \"${trust[@]}\" 802-1x.auth-timeout 8 >/dev/null" +
-    " && printf 'set 802-1x.password %s\\nsave\\nquit\\n' \"$pw\" | nmcli connection edit uuid \"$u\" >/dev/null" +
+    " && printf 'set 802-1x.password %s\\nsave\\nquit\\n' \"$pw\" | XDG_CACHE_HOME=\"$hist\" nmcli connection edit uuid \"$u\" >/dev/null" +
     " && nmcli connection up uuid \"$u\"" +
     " && { shift 4; for o; do nmcli connection delete uuid \"$o\" >/dev/null 2>&1; done; true; }" +
     " || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
@@ -241,13 +248,13 @@ Item {
   }
 
   readonly property string _hiddenScript:
-    "u=$(uuidgen); IFS= read -r pw; key=\"$2\";" +
+    root._historyGuard + "key=\"$2\";" +
     " if [ \"$key\" = open ]; then" +
     "   nmcli connection add type wifi con-name \"$1\" ssid \"$1\" wifi.hidden yes connection.uuid \"$u\" >/dev/null" +
     "   && nmcli connection up uuid \"$u\";" +
     " else" +
     "   nmcli connection add type wifi con-name \"$1\" ssid \"$1\" wifi.hidden yes wifi-sec.key-mgmt \"$key\" connection.uuid \"$u\" >/dev/null" +
-    "   && printf 'set wifi-sec.psk %s\\nsave\\nquit\\n' \"$pw\" | nmcli connection edit uuid \"$u\" >/dev/null" +
+    "   && printf 'set wifi-sec.psk %s\\nsave\\nquit\\n' \"$pw\" | XDG_CACHE_HOME=\"$hist\" nmcli connection edit uuid \"$u\" >/dev/null" +
     "   && nmcli connection up uuid \"$u\";" +
     " fi || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
 
