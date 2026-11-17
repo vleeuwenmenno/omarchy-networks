@@ -404,60 +404,54 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
+    text: root.barGlyph
+    foreground: root.primaryLink !== null ? root.barForeground : Qt.darker(root.barForeground, 1.55)
     tooltipText: root.tooltip
-    iconComponent: Component {
-      Item {
-        readonly property color ink: root.primaryLink !== null ? root.barForeground : Qt.darker(root.barForeground, 1.55)
 
-        // Connection type: wired, Wi-Fi, or offline.
-        Text {
-          anchors.centerIn: parent
-          // Leave room on the right for the generation number.
-          anchors.horizontalCenterOffset: root.barGeneration !== "" ? -Style.space(5) : 0
-          text: root.barGlyph
-          color: parent.ink
-          font.family: root.theme.fontFamily
-          font.pixelSize: Style.bar.iconFont
-        }
+    Item {
+      anchors.centerIn: parent
+      width: Style.bar.iconCanvas
+      height: Style.bar.iconCanvas
 
-        // Wi-Fi generation, tucked into the corner: 4, 5, 6, 6E, 7.
-        Text {
-          visible: root.barGeneration !== ""
-          anchors.right: parent.right
-          anchors.top: parent.top
-          anchors.rightMargin: -Style.space(8)
-          anchors.topMargin: -Style.space(2)
-          text: root.barGeneration
-          color: parent.ink
-          font.family: root.theme.fontFamily
-          font.pixelSize: Style.font.caption
-          font.bold: true
-        }
+      // Wi-Fi generation, tucked into the corner: 4, 5, 6, 6E, 7.
+      Text {
+        visible: root.barGeneration !== ""
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: -Style.space(6)
+        anchors.topMargin: -Style.space(2)
+        textFormat: Text.PlainText
+        text: root.barGeneration
+        color: button.foreground
+        font.family: root.theme.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
 
-        // Joining a Wi-Fi network: keeps turning after the panel is closed.
-        Spinner {
-          running: wifiState.connecting
-          anchors.left: parent.left
-          anchors.bottom: parent.bottom
-          anchors.leftMargin: -Style.space(4)
-          anchors.bottomMargin: -Style.space(3)
-          size: Style.space(9)
-          thickness: 1.5
-          color: parent.ink
-        }
+      // Joining a Wi-Fi network: keeps turning after the panel is closed.
+      Spinner {
+        running: wifiState.connecting
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: -Style.space(4)
+        anchors.bottomMargin: -Style.space(3)
+        size: Style.space(9)
+        thickness: 1.5
+        color: button.foreground
+      }
 
-        // A VPN is up.
-        Rectangle {
-          visible: vpnState.anyUp
-          anchors.right: parent.right
-          anchors.bottom: parent.bottom
-          width: Style.space(6)
-          height: width
-          radius: width / 2
-          color: vpnState.warning !== "" ? root.theme.urgent : parent.ink
-        }
+      // A VPN is up.
+      Rectangle {
+        visible: vpnState.anyUp
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: Style.space(6)
+        height: width
+        radius: width / 2
+        color: vpnState.warning !== "" ? root.theme.urgent : button.foreground
       }
     }
+
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.MiddleButton) { vpnState.refresh(); netState.refresh() }
       else root.toggle()
