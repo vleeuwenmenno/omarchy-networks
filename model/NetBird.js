@@ -161,3 +161,54 @@ function withNetworks(tunnel, networks) {
   }
   return copy
 }
+
+// ---- Profiles ---------------------------------------------------------------
+//
+// One daemon, several accounts (say netbird.io and a self-hosted server). Only
+// one profile is active at a time. `netbird profile list` has no JSON mode;
+// current releases print a table, older ones a check-mark list:
+//
+//   NAME      ACTIVE          Found 2 profiles:
+//   default                   ✓ default
+//   work      *               ✗ work
+
+var PROFILES_ARGS = ["netbird", "profile", "list"]
+
+function parseProfiles(text) {
+  var out = []
+  var lines = String(text || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].replace(/\s+$/, "")
+    var mark = line.match(/^\s*([✓✗])\s+(\S+)$/)
+    if (mark) { out.push({ name: mark[2], active: mark[1] === "✓" }); continue }
+    var row = line.match(/^(\S+)(?:\s+(\*))?$/)
+    if (!row || row[1] === "NAME" || !validProfile(row[1])) continue
+    out.push({ name: row[1], active: row[2] === "*" })
+  }
+  return out
+}
+
+// NetBird's own rule is looser; this is what is safe to hand to a command.
+function validProfile(name) {
+  return typeof name === "string" && /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/.test(name)
+}
+
+function withProfiles(tunnel, profiles) {
+  var list = (profiles || []).map(function(p) { return { name: p.name, active: p.active } })
+  var active = list.filter(function(p) { return p.active })
+  var copy = {}
+  for (var k in tunnel) copy[k] = tunnel[k]
+  copy.profiles = list
+  copy.profile = active.length > 0 ? active[0].name : ""
+  return copy
+}
+
+// The daemon keeps running on the old account until it reconnects, so a live
+// tunnel goes down, switches and comes back up on the new one. A tunnel that is
+// off stays off: only its switch turns it on.
+function switchProfileCommands(tunnel, name) {
+  if (!tunnel || !validProfile(name) || tunnel.profile === name) return []
+  var select = ["netbird", "profile", "select", "--", name]
+  if (tunnel.up || tunnel.connecting) return [DOWN_ARGS, select, UP_ARGS]
+  return [select]
+}

@@ -17,7 +17,7 @@ Wi-Fi, wired, DNS and every VPN, in one panel in the [Omarchy](https://omarchy.o
 - **Speed test**: latency, packet loss, download and upload on the link that carries your traffic.
 - **VPN**: NetworkManager WireGuard, OpenVPN and friends. Each tunnel has its own switch and nothing disconnects another, so tunnels that only carry certain addresses can run side by side. It only warns when two tunnels both claim all your traffic.
 - **Mullvad**: every country and city with search and favourites, plus lockdown mode, local network access and connect-on-startup.
-- **NetBird** and **Tailscale**: connect, pick an exit node, browse peers and copy their addresses.
+- **NetBird** and **Tailscale**: connect, pick an exit node, browse peers and copy their addresses. NetBird also lists its profiles (say netbird.io and a self-hosted server) and switches between them; a connected tunnel reconnects on the new profile, one that is off stays off.
 - **The bar icon** shows how you are connected: wired, or Wi-Fi with its generation (4, 5, 6, 6E, 7), and a dot while a VPN is up.
 
 <table>

@@ -36,6 +36,8 @@ Item {
   // exit id -> desired `selected`, until a poll agrees. Keeps the spinner on the
   // row from the click until NetBird really reports the change.
   property var exitPending: ({})
+  // NetBird profile being switched to, until a poll reports it active.
+  property string profileTarget: ""
 
   // Mullvad: the relay list (loaded once) and the row being switched to.
   property var relays: []
@@ -74,6 +76,13 @@ Item {
         if (!(e.id in exitPending)) return e
         return { id: e.id, label: e.label, selected: exitPending[e.id], pending: true }
       })
+    }
+    if (t.profiles && profileTarget !== "") {
+      if (copy === t) { copy = {}; for (var q in t) copy[q] = t[q] }
+      copy.profiles = t.profiles.map(function(p) {
+        return { name: p.name, active: p.name === profileTarget, pending: p.name === profileTarget }
+      })
+      copy.profile = profileTarget
     }
     return copy
   })
@@ -121,6 +130,19 @@ Item {
       else if (!wasSelected && exits[i].selected) want[exits[i].id] = false
     }
     exitPending = want
+    pendingExpiry.restart()
+    _run(cmds)
+  }
+
+  // Make another NetBird profile the active one. A connected tunnel reconnects
+  // on it; one that is off stays off.
+  function switchProfile(tunnel, name) {
+    if (demo) return
+    if (!tunnel || actionProcess.running || profileTarget !== "") return
+    var cmds = Compose.profileCommands(tunnel, name)
+    if (cmds.length === 0) return
+    lastError = ""
+    profileTarget = name
     pendingExpiry.restart()
     _run(cmds)
   }
@@ -232,6 +254,11 @@ Item {
       else exitChanged = true
     }
     if (exitChanged) exitPending = exits
+
+    if (profileTarget !== "") {
+      var nbNow = b.tunnels.filter(function(x) { return x.backend === "netbird" })[0]
+      if (!nbNow || nbNow.profile === profileTarget) profileTarget = ""
+    }
   }
 
   function _firstLine(text) {
@@ -280,6 +307,7 @@ Item {
         root.pending = ({})
         root.exitPending = ({})
         root.settingPending = ({})
+        root.profileTarget = ""
         root.exitBusy = false
         root.mullvadSwitching = false
         settle.restart()
@@ -308,7 +336,7 @@ Item {
     id: pendingExpiry
     interval: 12000
     repeat: false
-    onTriggered: { root.pending = ({}); root.exitPending = ({}); root.settingPending = ({}) }
+    onTriggered: { root.pending = ({}); root.exitPending = ({}); root.settingPending = ({}); root.profileTarget = "" }
   }
 
   Timer {

@@ -879,3 +879,80 @@ test("wifi: profile check output that is incomplete or malformed is refused", ()
   assert.equal(Wifi.parseProfiles("connection.uuid:11111111-1111-1111-1111-111111111111\nconnection.type:802-11-wireless\ndone"), null)
   assert.equal(Wifi.parseProfiles("garbage\n--\ndone"), null)
 })
+
+// ---- NetBird profiles -------------------------------------------------------
+
+const PROFILES = `NAME      ACTIVE
+default   
+personal  
+work      *
+`
+
+test("NetBird parses the profile table and marks the active one", () => {
+  assert.deepEqual(NetBird.parseProfiles(PROFILES), [
+    { name: "default", active: false },
+    { name: "personal", active: false },
+    { name: "work", active: true },
+  ])
+})
+
+test("NetBird parses the older check-mark profile list", () => {
+  const old = "Found 2 profiles:\n✓ default\n✗ work\n"
+  assert.deepEqual(NetBird.parseProfiles(old), [
+    { name: "default", active: true },
+    { name: "work", active: false },
+  ])
+})
+
+test("NetBird profiles: nothing usable gives an empty list", () => {
+  assert.deepEqual(NetBird.parseProfiles(""), [])
+  assert.deepEqual(NetBird.parseProfiles("NAME      ACTIVE\n"), [])
+  assert.deepEqual(NetBird.parseProfiles("Error: daemon not running"), [])
+})
+
+test("NetBird folds profiles into the tunnel", () => {
+  const base = NetBird.parseStatus('{"daemonStatus":"Connected","peers":{}}')
+  const t = NetBird.withProfiles(base, NetBird.parseProfiles(PROFILES))
+  assert.equal(t.profile, "work")
+  assert.equal(t.profiles.length, 3)
+  assert.equal(base.profiles, undefined) // not mutated
+})
+
+test("NetBird profile names are validated before reaching a command", () => {
+  assert.equal(NetBird.validProfile("work"), true)
+  assert.equal(NetBird.validProfile("my-home_2.net"), true)
+  assert.equal(NetBird.validProfile("-rf"), false)
+  assert.equal(NetBird.validProfile("a b"), false)
+  assert.equal(NetBird.validProfile(""), false)
+  assert.equal(NetBird.validProfile("x".repeat(65)), false)
+})
+
+test("switching profile while up reconnects on the new one", () => {
+  const t = { backend: "netbird", up: true, connecting: false, profile: "work" }
+  assert.deepEqual(NetBird.switchProfileCommands(t, "personal"), [
+    ["netbird", "down"],
+    ["netbird", "profile", "select", "--", "personal"],
+    ["netbird", "up"],
+  ])
+})
+
+test("switching profile while down only selects it", () => {
+  const t = { backend: "netbird", up: false, connecting: false, profile: "work" }
+  assert.deepEqual(NetBird.switchProfileCommands(t, "personal"), [
+    ["netbird", "profile", "select", "--", "personal"],
+  ])
+})
+
+test("switching to the active or an invalid profile does nothing", () => {
+  const t = { backend: "netbird", up: true, connecting: false, profile: "work" }
+  assert.deepEqual(NetBird.switchProfileCommands(t, "work"), [])
+  assert.deepEqual(NetBird.switchProfileCommands(t, "--help"), [])
+})
+
+test("compose: the poll carries NetBird profiles", () => {
+  const b = Compose.build(POLL + "@@NBP\n" + PROFILES)
+  const nb = b.tunnels.find((t) => t.id === "netbird")
+  assert.equal(nb.profile, "work")
+  assert.deepEqual(nb.profiles.map((p) => p.name), ["default", "personal", "work"])
+  assert.equal(Compose.POLL_SCRIPT.includes("netbird profile list"), true)
+})
