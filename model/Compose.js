@@ -16,6 +16,7 @@ var POLL_SCRIPT = [
   "m NM; t nmcli -t -f NAME,UUID,TYPE,DEVICE,STATE,FILENAME connection show",
   "m NB; t netbird status --json",
   "m NBN; t netbird networks list",
+  "m NBP; t netbird profile list",
   "m TS; t tailscale status --json",
   "m INST; for c in netbird tailscale mullvad nmcli; do command -v \"$c\" >/dev/null 2>&1 && echo \"$c\"; done",
   "m MV; t mullvad status --json",
@@ -42,7 +43,10 @@ function build(text) {
   })
 
   var nb = NetBird.parseStatus(sec.NB || "")
-  if (nb) tunnels.push(NetBird.withNetworks(NetBird.withRoutes(nb, routesOf(nb)), networks))
+  if (nb) {
+    var withNet = NetBird.withNetworks(NetBird.withRoutes(nb, routesOf(nb)), networks)
+    tunnels.push(NetBird.withProfiles(withNet, NetBird.parseProfiles(sec.NBP || "")))
+  }
 
   var ts = Tailscale.parseStatus(sec.TS || "")
   if (ts) tunnels.push(Tailscale.withRoutes(ts, routesOf(ts)))
@@ -91,6 +95,10 @@ function toggleCommands(tunnel) {
     return [up ? WG.downArgs(iface) : WG.upArgs(iface)]
   }
   return []
+}
+
+function profileCommands(tunnel, name) {
+  return tunnel && tunnel.backend === "netbird" ? NetBird.switchProfileCommands(tunnel, name) : []
 }
 
 // Toggle a NetBird exit node: picking the selected one clears it.

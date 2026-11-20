@@ -70,6 +70,7 @@ Panel {
       check: "\uf00c",
       refresh: "\uf021",
       key: "\uf084",
+      user: "\uf007",
       qr: "\uf029",
       speed: "\uf0e4",
       close: "\uf00d"

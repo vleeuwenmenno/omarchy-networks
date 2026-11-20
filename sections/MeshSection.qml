@@ -42,6 +42,15 @@ SectionBase {
     }
   }
 
+  function profileItem(t, p) {
+    return {
+      type: "toggle", action: "profile", tunnel: t, profileName: p.name,
+      glyph: theme.glyphs.user, title: p.name,
+      detail: p.active ? (p.pending ? "Switching…" : (t.up ? "Connected with this profile" : "Used on next connect")) : "",
+      checked: p.active, busy: p.pending === true
+    }
+  }
+
   items: {
     var out = []
     var t = tunnel
@@ -54,6 +63,14 @@ SectionBase {
       checked: t.up || t.connecting, busy: t.connecting
     })
     if (vpn.lastError !== "") out.push({ type: "text", tone: "urgent", text: vpn.lastError })
+
+    // NetBird profiles: one account at a time. Listed even while off, so the
+    // next connection can be pointed at the right account first.
+    var profiles = t.profiles || []
+    if (profiles.length > 1) {
+      out.push({ type: "header", text: "Profile" })
+      for (var p = 0; p < profiles.length; p++) out.push(profileItem(t, profiles[p]))
+    }
 
     if (t.needsLogin) {
       if (t.authUrl) out.push({ type: "button", action: "login", glyph: theme.glyphs.exit, title: "Open the login page" })
@@ -111,6 +128,7 @@ SectionBase {
       else vpn.toggle(item.tunnel)
     }
     else if (item.action === "exit") vpn.toggleExit(item.tunnel, item.exitId)
+    else if (item.action === "profile") vpn.switchProfile(item.tunnel, item.profileName)
     else if (item.action === "login" && t && t.authUrl) Quickshell.execDetached(["xdg-open", t.authUrl])
     else if (item.action === "operator") vpn.runAction(Tailscale.operatorCommand(Quickshell.env("USER")))
   }
